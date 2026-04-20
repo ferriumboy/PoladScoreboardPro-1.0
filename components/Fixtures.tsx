@@ -11,14 +11,12 @@ interface Props {
   onUpdateScore: (id: string, updates: Partial<Match>) => void;
   onStartInterview: (match: Match) => void;
   type?: TournamentType;
-  zoomLevel?: number;
-  onZoomChange?: (level: number) => void;
   onMatchClick?: (id: string) => void;
 }
 
 const DEFAULT_LOGO = "https://cdn-icons-png.flaticon.com/512/16/16480.png";
 
-const Fixtures: React.FC<Props> = ({ matches, teams, teamPlayers, onUpdateScore, onStartInterview, type, zoomLevel = 100, onZoomChange, onMatchClick }) => {
+const Fixtures: React.FC<Props> = ({ matches, teams, teamPlayers, onUpdateScore, onStartInterview, type, onMatchClick }) => {
   const [viewMode, setViewMode] = useState<'groups' | 'bracket'>('groups');
 
   const getTeam = (id: string) => (teams || []).find(t => t.id === id);
@@ -53,7 +51,11 @@ const Fixtures: React.FC<Props> = ({ matches, teams, teamPlayers, onUpdateScore,
       {(viewMode === 'groups' || groupMatches.length === 0) && sortedRoundNumbers.map(roundNum => (
         <div key={roundNum} className="space-y-3 md:space-y-4">
           <div className="flex items-center gap-3 md:gap-4">
-            <span className="text-neon font-black text-[10px] md:text-xs uppercase tracking-[0.3em]">{rounds[roundNum][0]?.stageName || `${roundNum}. TUR`}</span>
+            <span className="text-neon font-black text-[10px] md:text-xs uppercase tracking-[0.3em]">
+              {rounds[roundNum][0]?.stageName && rounds[roundNum][0].stageName !== 'Liqa Mərhələsi' 
+                ? rounds[roundNum][0].stageName 
+                : `${roundNum}-ci Tur`}
+            </span>
             <div className="h-px bg-white/5 flex-grow"></div>
           </div>
           
@@ -94,41 +96,45 @@ const Fixtures: React.FC<Props> = ({ matches, teams, teamPlayers, onUpdateScore,
 };
 
 const MatchCard: React.FC<{ match: Match, home?: Team, away?: Team, onSelect: (id: string) => void }> = ({ match, home, away, onSelect }) => (
-  <div className="premium-glass-card rounded-xl md:rounded-2xl border border-white/5 hover:border-neon/30 transition-all shadow-xl flex flex-col bg-[#020d2d]/60 relative group overflow-hidden">
+  <div className="premium-glass-card rounded-xl md:rounded-2xl border border-white/10 hover:border-neon/50 transition-all shadow-2xl flex flex-col bg-[#050e1c]/80 relative group overflow-hidden">
     <div 
-      className="p-2 md:p-6 cursor-pointer flex flex-col gap-2 md:gap-6"
+      className="p-3 md:p-8 cursor-pointer flex flex-col gap-3 md:gap-8"
       onClick={() => onSelect(match.id)}
     >
-      <div className="flex items-center justify-between">
-        <div className="absolute top-1 left-1/2 -translate-x-1/2 text-[5px] md:text-[7px] font-black text-white/20 uppercase tracking-widest">{match.stageName}</div>
+      <div className="flex items-center justify-between relative">
+        <div className="absolute -top-2 left-1/2 -translate-x-1/2 text-[6px] md:text-[8px] font-black text-neon/40 uppercase tracking-[0.4em] whitespace-nowrap">
+          {match.stageName} {match.date && `• ${match.date}`}
+        </div>
         
-        <div className="flex-1 flex flex-col items-center gap-0.5 md:gap-2">
-          <div className="w-6 h-6 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center p-0.5 md:p-1.5 shadow-lg shrink-0">
+        <div className="flex-1 flex flex-col items-center gap-2 md:gap-4">
+          <div className="w-10 h-10 md:w-20 md:h-20 rounded-full bg-white flex items-center justify-center p-1 md:p-3 shadow-[0_0_20px_rgba(255,255,255,0.1)] shrink-0 group-hover:scale-110 transition-transform">
             <img src={home?.logo || DEFAULT_LOGO} className="w-full h-full object-contain" alt="" />
           </div>
-          <span className="text-[6px] md:text-[10px] font-black text-white uppercase text-center truncate w-full px-1">{home?.name}</span>
+          <span className="text-[8px] md:text-sm font-black text-white uppercase text-center italic tracking-tight leading-none h-4 md:h-6 flex items-center justify-center">{home?.name}</span>
         </div>
 
-        <div className="flex flex-col items-center gap-0.5">
-          <div className="flex items-center gap-1 md:gap-2">
-            <div className="w-6 h-8 md:w-12 md:h-14 text-center text-xs md:text-2xl font-black bg-black/80 border border-white/10 rounded-md md:rounded-xl text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-1 md:gap-3 px-2 md:px-6">
+          <div className="flex items-center gap-2 md:gap-4">
+            <div className="w-8 h-10 md:w-16 md:h-20 text-center text-sm md:text-4xl font-black bg-black border-2 border-white/10 rounded-lg md:rounded-2xl text-white flex items-center justify-center shadow-inner">
               {match.homeScore ?? '-'}
             </div>
-            <span className="text-white/20 font-black text-[8px] md:text-base">:</span>
-            <div className="w-6 h-8 md:w-12 md:h-14 text-center text-xs md:text-2xl font-black bg-black/80 border border-white/10 rounded-md md:rounded-xl text-white flex items-center justify-center">
+            <span className="text-neon font-black text-xs md:text-3xl animate-pulse">:</span>
+            <div className="w-8 h-10 md:w-16 md:h-20 text-center text-sm md:text-4xl font-black bg-black border-2 border-white/10 rounded-lg md:rounded-2xl text-white flex items-center justify-center shadow-inner">
               {match.awayScore ?? '-'}
             </div>
           </div>
           {match.penaltyWinnerId && (
-            <div className="text-[5px] font-black text-neon uppercase tracking-tighter">Penaltilərlə: {match.penaltyWinnerId === match.homeTeamId ? 'EV' : 'SƏF'}</div>
+            <div className="bg-neon/10 px-2 py-0.5 rounded text-[6px] md:text-[10px] font-black text-neon uppercase tracking-tighter border border-neon/20">
+              Penaltilərlə: {match.penaltyWinnerId === match.homeTeamId ? 'EV' : 'SƏF'}
+            </div>
           )}
         </div>
 
-        <div className="flex-1 flex flex-col items-center gap-0.5 md:gap-2">
-          <div className="w-6 h-6 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center p-0.5 md:p-1.5 shadow-lg shrink-0">
+        <div className="flex-1 flex flex-col items-center gap-2 md:gap-4">
+          <div className="w-10 h-10 md:w-20 md:h-20 rounded-full bg-white flex items-center justify-center p-1 md:p-3 shadow-[0_0_20px_rgba(255,255,255,0.1)] shrink-0 group-hover:scale-110 transition-transform">
             <img src={away?.logo || DEFAULT_LOGO} className="w-full h-full object-contain" alt="" />
           </div>
-          <span className="text-[6px] md:text-[10px] font-black text-white uppercase text-center truncate w-full px-1">{away?.name}</span>
+          <span className="text-[8px] md:text-sm font-black text-white uppercase text-center italic tracking-tight leading-none h-4 md:h-6 flex items-center justify-center">{away?.name}</span>
         </div>
       </div>
 

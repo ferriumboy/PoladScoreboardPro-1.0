@@ -23,6 +23,16 @@ export interface MatchStats {
   passesAway: number;
   foulsHome: number;
   foulsAway: number;
+  freeKicksHome: number;
+  freeKicksAway: number;
+  successfulPassesHome: number;
+  successfulPassesAway: number;
+  crossesHome: number;
+  crossesAway: number;
+  interceptionsHome: number;
+  interceptionsAway: number;
+  tacklesHome: number;
+  tacklesAway: number;
 }
 
 export interface Match {
@@ -51,6 +61,7 @@ export interface Match {
   nextMatchId?: string;
   nextMatchSlot?: 'home' | 'away';
   stageName?: string; // e.g. "1/8 Final", "1/4 Final", "Yarımfinal", "Final"
+  date?: string;
 }
 
 export enum TournamentMode {
@@ -67,6 +78,8 @@ export enum TournamentType {
   WORLD_CUP = 'WORLD_CUP'
 }
 
+export type ProfileView = 'tournaments' | 'stats' | 'preferences' | 'settings' | 'help' | 'logout' | null;
+
 export interface Standing {
   teamId: string;
   teamName: string;
@@ -82,6 +95,18 @@ export interface Standing {
   form: ('Q' | 'H' | 'M')[];
 }
 
+export interface GoalVideo {
+  id: string;
+  tournamentId: string;
+  matchId: string;
+  scorerName: string;
+  stageName: string;
+  homeTeam: string;
+  awayTeam: string;
+  videoBlob?: Blob;
+  videoUrl?: string;
+}
+
 export interface SavedTournament {
   id: string;
   name: string;
@@ -89,6 +114,7 @@ export interface SavedTournament {
   standings: Standing[];
   matches: Match[];
   type: TournamentType;
+  state: TournamentState;
 }
 
 export interface SocialComment {
@@ -111,6 +137,7 @@ export interface SocialPost {
   country?: string;
   comments: SocialComment[];
   timestamp: string;
+  likes?: number;
 }
 
 export interface DirectMessage {
@@ -127,12 +154,22 @@ export interface DMConversation {
   messages: DirectMessage[];
   isBlocked: boolean;
   toxicityCount: number;
+  toxicityLevel: number; // 0-100
   relationshipLevel: number; // 0-100
   callCount?: number;
   lastCallTime?: number;
 }
 
+export interface Participant {
+  uid: string;
+  name: string;
+  avatar: string;
+  teamId?: string;
+  teamName?: string;
+}
+
 export interface TournamentState {
+  id: string;
   teams: Team[];
   matches: Match[];
   mode: TournamentMode;
@@ -143,6 +180,12 @@ export interface TournamentState {
   teamPlayers: Record<string, string[]>;
   socialFeed?: SocialPost[];
   dmConversations?: Record<string, DMConversation>;
+  roomPin?: string;
+  adminId?: string;
+  isOnline?: boolean;
+  allowViewerEdit?: boolean;
+  isViewOnly?: boolean;
+  participants?: Participant[];
 }
 
 export interface InterviewOption {

@@ -6,11 +6,9 @@ import { motion, AnimatePresence } from 'motion/react';
 interface Props {
   data: InterviewData;
   onComplete: (selectedOption: InterviewOption | null) => void;
-  zoomLevel?: number;
-  onZoomChange?: (level: number) => void;
 }
 
-const FlashZone: React.FC<Props> = ({ data, onComplete, zoomLevel = 100 }) => {
+const FlashZone: React.FC<Props> = ({ data, onComplete }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedOption, setSelectedOption] = useState<InterviewOption | null>(null);
   const [showReaction, setShowReaction] = useState(false);
@@ -19,7 +17,7 @@ const FlashZone: React.FC<Props> = ({ data, onComplete, zoomLevel = 100 }) => {
 
   if (!currentQuestion) {
     return (
-      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#000a1a] font-display text-white">
+      <div className="fixed inset-0 z-[400] flex flex-col items-center justify-center bg-[#000a1a] font-display text-white">
         <div className="bg-[#001b4d]/40 backdrop-blur-xl border border-white/10 p-10 rounded-3xl text-center">
           <span className="material-symbols-outlined text-5xl text-[#00ffcc] mb-4 animate-spin">sync</span>
           <p className="text-xl font-bold uppercase italic tracking-widest">Müsahibə yüklənir...</p>
@@ -45,23 +43,34 @@ const FlashZone: React.FC<Props> = ({ data, onComplete, zoomLevel = 100 }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#000a1a] font-display text-white overflow-hidden selection:bg-[#00ffcc] selection:text-[#000a1a]">
+    <div className="fixed inset-0 z-[400] bg-[#000a1a] font-display text-white overflow-hidden selection:bg-[#00ffcc] selection:text-[#000a1a]">
       {/* Main Broadcast Container */}
-      <div className="relative min-h-[100dvh] w-full flex flex-col overflow-x-hidden overflow-y-auto" style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}>
+      <div className="relative min-h-[100dvh] w-full flex flex-col overflow-x-hidden overflow-y-auto">
         
         {/* Sponsor Backdrop (The Wall) */}
-        <div className="absolute inset-0 z-0 flex items-center justify-center opacity-40 pointer-events-none">
-          <div className="grid grid-cols-4 md:grid-cols-6 gap-4 md:gap-16 p-4 md:p-16 w-full h-full max-w-7xl mx-auto items-center justify-items-center">
-            {[...Array(24)].map((_, i) => {
+        <div className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none">
+          <div className="grid grid-cols-4 md:grid-cols-8 w-full h-full">
+            {[...Array(64)].map((_, i) => {
               const logos = [
                 "https://upload.wikimedia.org/wikipedia/commons/4/4e/Playstation_logo_colour.svg",
                 "https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Heineken_logo.svg/1920px-Heineken_logo.svg.png",
                 "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Mastercard-logo.svg/1280px-Mastercard-logo.svg.png",
                 "https://logos-world.net/wp-content/uploads/2020/12/Pepsi-Logo.png",
-                "https://en.wikipedia.org/wiki/FedEx#/media/File:FedEx_Corporation_-_2016_Logo.svg",
+                "https://upload.wikimedia.org/wikipedia/commons/9/9d/FedEx_Express.svg",
                 "https://upload.wikimedia.org/wikipedia/en/6/62/Turkish_Airlines_logo_%28large%29.svg"
               ];
-              return <img key={i} src={logos[i % logos.length]} className="max-h-[30px] md:max-h-[40px] object-contain opacity-50 hover:opacity-100 transition-opacity duration-300" alt="Sponsor" />;
+              // Checkered pattern logic
+              const row = Math.floor(i / 8);
+              const col = i % 8;
+              const isDark = (row + col) % 2 === 0;
+              
+              return (
+                <div key={i} className={`flex items-center justify-center border border-white/10 ${isDark ? 'bg-[#001242]/60' : 'bg-[#001b4d]/60'} shadow-inner`}>
+                  <div className="w-full h-full flex items-center justify-center p-2 border border-white/5">
+                    <img src={logos[i % logos.length]} className="max-h-[15px] md:max-h-[25px] object-contain opacity-30 hover:opacity-100 transition-opacity duration-300" alt="Sponsor" />
+                  </div>
+                </div>
+              );
             })}
           </div>
         </div>

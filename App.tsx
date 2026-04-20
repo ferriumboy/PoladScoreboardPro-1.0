@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { TournamentState, Team, TournamentMode, TournamentType, SavedTournament, Match, MatchStats, InterviewData, SocialPost, Standing, DirectMessage } from './types';
+import { TournamentState, Team, TournamentMode, TournamentType, SavedTournament, Match, MatchStats, InterviewData, SocialPost, Standing, DirectMessage, ProfileView } from './types';
 import { generateFixtures, calculateStandings, calculateGroupedStandings, updateTournamentState } from './utils/tournamentLogic';
 import TournamentSetup from './components/TournamentSetup';
 import Fixtures from './components/Fixtures';
@@ -16,12 +16,22 @@ import BracketView from './components/BracketView';
 import UclKnockoutView from './components/UclKnockoutView';
 import MatchStatsOverlay from './components/MatchStatsOverlay';
 import IntroVideo from './components/IntroVideo';
+import UserProfileDropdown from './components/UserProfileDropdown';
+import { MyTournaments, MatchHistory, TeamPreferences, AppSettings, RulesAndHelp, LogoutConfirmation } from './components/ProfileViews';
+import { X } from 'lucide-react';
 import { Type, GoogleGenAI } from "@google/genai";
 import { callGeminiWithRetry } from './src/services/gemini';
 import { teamStadiums } from './data/stadiums';
 import { allFootballClubs } from './data/clubs';
 
 import DirectMessageModal from './components/DirectMessageModal';
+import PuskasPlayer from './components/PuskasPlayer';
+import { getGoalVideos, clearGoalVideos } from './utils/videoService';
+import { GoalVideo } from './types';
+
+import { db, auth } from './firebase';
+import { collection, doc, setDoc, onSnapshot, query, where, getDocs, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from 'firebase/auth';
 
 const STORAGE_KEY = 'football_tournament_pro_v5_stable';
 const HISTORY_KEY = 'football_tournament_history_v5_stable';
@@ -47,9 +57,17 @@ const App: React.FC = () => {
   const [showStatsDashboard, setShowStatsDashboard] = useState(false);
   const [currentInterview, setCurrentInterview] = useState<InterviewData | null>(null);
   const [resetKey, setResetKey] = useState(0);
-  const [zoomLevel, setZoomLevel] = useState(100);
   const [showIntroVideo, setShowIntroVideo] = useState(false);
+  const [showParticipantsModal, setShowParticipantsModal] = useState(false);
   
+  const [showHistory, setShowHistory] = useState(false);
+  const [user, setUser] = useState<any>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveStatus, setSaveStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
   const [history, setHistory] = useState<SavedTournament[]>(() => {
     try {
       const saved = localStorage.getItem(HISTORY_KEY);
@@ -60,46 +78,272 @@ const App: React.FC = () => {
     }
   });
   
-  const [state, setState] = useState<TournamentState>(() => {
-    const initialState: TournamentState = {
-      teams: [],
-      matches: [],
-      mode: TournamentMode.SINGLE,
-      type: TournamentType.CHAMPIONS_LEAGUE,
-      managerName: 'Baş məşqçi',
-      isStarted: false,
-      isDrawing: false,
-      teamPlayers: {},
-      socialFeed: []
-    };
-
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ...initialState,
-          ...parsed,
-          teamPlayers: parsed.teamPlayers || {},
-          socialFeed: parsed.socialFeed || [],
-          teams: parsed.teams || [],
-          matches: parsed.matches || []
-        };
-      }
-    } catch (e) {
-      console.error("State parse failed", e);
-    }
-    return initialState;
+  const [state, setState] = useState<TournamentState>({
+    id: `tour-${Date.now()}`,
+    teams: [],
+    matches: [],
+    mode: TournamentMode.SINGLE,
+    type: TournamentType.CHAMPIONS_LEAGUE,
+    managerName: 'Baş məşqçi',
+    isStarted: false,
+    isDrawing: false,
+    teamPlayers: {},
+    socialFeed: []
   });
 
   const [activeDM, setActiveDM] = useState<string | null>(null);
   const [showWinner, setShowWinner] = useState(false);
+  const [showPuskas, setShowPuskas] = useState(false);
+  const [goalVideos, setGoalVideos] = useState<GoalVideo[]>([]);
   const [showSocialFeed, setShowSocialFeed] = useState(false);
   const [showPressCoverage, setShowPressCoverage] = useState(false);
   const [activeStandingsView, setActiveStandingsView] = useState<'standings' | 'bracket'>('standings');
   const [isMuted, setIsMuted] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+
+  const [userTournaments, setUserTournaments] = useState<TournamentState[]>([]);
+  const [isGuest, setIsGuest] = useState(false);
+  const [favoriteTeam, setFavoriteTeam] = useState<Team | null>(() => {
+    try {
+      const saved = localStorage.getItem('fav_team');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const selectedMatchData = useMemo(() => {
+    if (!selectedMatchId) return null;
+    
+    // Check if it's a history ID format: tourId-matchId
+    let matchId = selectedMatchId;
+    let tourId: string | null = null;
+    
+    if (selectedMatchId.startsWith('tour-')) {
+      const parts = selectedMatchId.split('-');
+      // Parts: [tour, timestamp, match, ...]
+      if (parts.length >= 3) {
+        tourId = `${parts[0]}-${parts[1]}`;
+        matchId = parts.slice(2).join('-');
+      }
+    }
+
+    // Try current state first if no specific tourId or if tourId matches current
+    if (!tourId || tourId === state.id) {
+      const currentMatch = state.matches.find(m => m.id === matchId);
+      if (currentMatch) {
+        const homeTeam = state.teams.find(t => t.id === currentMatch.homeTeamId);
+        const awayTeam = state.teams.find(t => t.id === currentMatch.awayTeamId);
+        if (homeTeam && awayTeam) {
+          return {
+            match: currentMatch,
+            allMatches: state.matches,
+            homeTeam,
+            awayTeam,
+            teamPlayers: state.teamPlayers || {},
+            tournamentId: state.id,
+            canEdit: (!state.adminId || state.adminId === user?.uid || state.allowViewerEdit) && !state.isViewOnly
+          };
+        }
+      }
+    }
+
+    // Search in history
+    const targetTour = tourId ? userTournaments.find(t => t.id === tourId) : null;
+    if (targetTour) {
+      const match = targetTour.matches.find(m => m.id === matchId);
+      if (match) {
+        const homeTeam = targetTour.teams.find(t => t.id === match.homeTeamId);
+        const awayTeam = targetTour.teams.find(t => t.id === match.awayTeamId);
+        if (homeTeam && awayTeam) {
+          return {
+            match,
+            allMatches: targetTour.matches,
+            homeTeam,
+            awayTeam,
+            teamPlayers: targetTour.teamPlayers || {},
+            tournamentId: targetTour.id,
+            canEdit: targetTour.adminId === user?.uid
+          };
+        }
+      }
+    } else if (!tourId) {
+      // If no tourId specified, search all tournaments
+      for (const tour of userTournaments) {
+        const match = tour.matches.find(m => m.id === matchId);
+        if (match) {
+          const homeTeam = tour.teams.find(t => t.id === match.homeTeamId);
+          const awayTeam = tour.teams.find(t => t.id === match.awayTeamId);
+          if (homeTeam && awayTeam) {
+            return {
+              match,
+              allMatches: tour.matches,
+              homeTeam,
+              awayTeam,
+              teamPlayers: tour.teamPlayers || {},
+              tournamentId: tour.id,
+              canEdit: tour.adminId === user?.uid
+            };
+          }
+        }
+      }
+    }
+    
+    return null;
+  }, [selectedMatchId, state, userTournaments, user]);
+
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [activeProfileView, setActiveProfileView] = useState<ProfileView>(null);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Auth initialization
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setIsAuthReady(true);
+      
+      // If logged in but no favorite team, force selection
+      if (u && !favoriteTeam) {
+        setActiveProfileView('preferences');
+      }
+    });
+    return () => unsubscribe();
+  }, [favoriteTeam]);
+
+  // Fetch user tournaments
+  useEffect(() => {
+    if (!user) {
+      setUserTournaments([]);
+      return;
+    }
+
+    const q = query(collection(db, 'tournaments'), where('adminId', '==', user.uid));
+    const unsub = onSnapshot(q, (snapshot) => {
+      const tours = snapshot.docs.map(d => d.data().state as TournamentState);
+      setUserTournaments(tours);
+    });
+
+    return () => unsub();
+  }, [user]);
+
+  const userMatchHistory = useMemo(() => {
+    const history: any[] = [];
+    userTournaments.forEach(tour => {
+      tour.matches.filter(m => m.isFinished).forEach(m => {
+        const homeTeam = tour.teams.find(t => t.id === m.homeTeamId);
+        const awayTeam = tour.teams.find(t => t.id === m.awayTeamId);
+        
+        if (homeTeam && awayTeam) {
+          let perspectiveTeam = homeTeam;
+          let opponentTeam = awayTeam;
+          let perspectiveScore = m.homeScore || 0;
+          let opponentScore = m.awayScore || 0;
+
+          if (favoriteTeam) {
+            // Only show matches involving the favorite team if we want that perspective
+            const isFavHome = homeTeam.id === favoriteTeam.id || homeTeam.name === favoriteTeam.name;
+            const isFavAway = awayTeam.id === favoriteTeam.id || awayTeam.name === favoriteTeam.name;
+            
+            if (!isFavHome && !isFavAway) return;
+
+            if (isFavAway) {
+              perspectiveTeam = awayTeam;
+              opponentTeam = homeTeam;
+              perspectiveScore = m.awayScore || 0;
+              opponentScore = m.homeScore || 0;
+            }
+          }
+
+          history.push({
+            id: `${tour.id}-${m.id}`,
+            teamName: perspectiveTeam.name,
+            opponentName: opponentTeam.name,
+            score: perspectiveScore,
+            opponentScore: opponentScore,
+            result: perspectiveScore > opponentScore ? 'W' : perspectiveScore === opponentScore ? 'D' : 'L',
+            date: parseInt(tour.id.split('-')[1]),
+            originalMatch: m,
+            tourTeams: tour.teams,
+            tourMatches: tour.matches
+          });
+        }
+      });
+    });
+    return history.sort((a, b) => b.date - a.date);
+  }, [userTournaments, favoriteTeam]);
+
+  const handleSaveFavoriteTeam = (team: Team) => {
+    setFavoriteTeam(team);
+    localStorage.setItem('fav_team', JSON.stringify(team));
+    setActiveProfileView(null);
+  };
+
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const handleGoogleLogin = async () => {
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    
+    try {
+      const provider = new GoogleAuthProvider();
+      // Set custom parameters to force selection if needed
+      provider.setCustomParameters({ prompt: 'select_account' });
+      
+      const result = await signInWithPopup(auth, provider);
+      setUser(result.user);
+    } catch (e: any) {
+      console.error("Google Login failed", e);
+      // Don't show alert for user cancellation or blocked popups
+      if (e.code !== 'auth/popup-closed-by-user' && e.code !== 'auth/cancelled-popup-request') {
+        if (e.code === 'auth/popup-blocked') {
+          alert("Lütfən, brauzerinizdə 'Pop-up' pəncərələrə icazə verin.");
+        } else {
+          alert(`Giriş xətası: ${e.message}`);
+        }
+      }
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Real-time listener for tournament state
+  useEffect(() => {
+    if (!state.isOnline || !state.id) return;
+
+    const unsub = onSnapshot(doc(db, 'tournaments', state.id), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.adminId !== user?.uid) {
+          setState(prev => ({
+            ...prev,
+            ...data.state,
+            isOnline: true,
+            roomPin: data.pin,
+            adminId: data.adminId
+          }));
+        }
+      }
+    }, (err) => {
+      console.error("Firestore sync error:", err);
+    });
+
+    return () => unsub();
+  }, [state.id, state.isOnline, user?.uid]);
+
+  // Save to Firebase if Admin
+  const syncToFirebase = async (newState: TournamentState) => {
+    if (!newState.isOnline || !newState.id || newState.adminId !== user?.uid) return;
+    
+    try {
+      await updateDoc(doc(db, 'tournaments', newState.id), {
+        state: newState,
+        updatedAt: serverTimestamp()
+      });
+    } catch (e) {
+      console.error("Firebase update failed", e);
+    }
+  };
   
   useEffect(() => {
     const source = state.type === TournamentType.WORLD_CUP
@@ -138,7 +382,23 @@ const App: React.FC = () => {
   };
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }, [state]);
-  useEffect(() => { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }, [history]);
+  useEffect(() => { 
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); 
+    } catch (e) {
+      console.error("History save failed", e);
+    }
+  }, [history]);
+
+  useEffect(() => {
+    const handleSave = (e: any) => {
+      if (e.detail && e.detail.name) {
+        saveTournament(e.detail.name);
+      }
+    };
+    window.addEventListener('save-tournament', handleSave);
+    return () => window.removeEventListener('save-tournament', handleSave);
+  }, [state]);
 
   const isFinished = useMemo(() => 
     state.isStarted && state.matches.length > 0 && state.matches.every(m => m.isFinished), 
@@ -168,12 +428,27 @@ const App: React.FC = () => {
     }
   };
 
-  useEffect(() => { 
-    if (isFinished) {
-      const timer = setTimeout(() => setShowWinner(true), 1500);
-      return () => clearTimeout(timer);
+  const handleMatchStatsClose = () => {
+    const currentMatch = state.matches.find(m => m.id === selectedMatchId);
+    setSelectedMatchId(null);
+    
+    // Check if tournament just finished
+    if (currentMatch && currentMatch.isFinished) {
+      const allFinished = state.matches.every(m => m.id === currentMatch.id ? true : m.isFinished);
+      if (allFinished) {
+        setShowWinner(true);
+      }
     }
-  }, [isFinished]);
+  };
+
+  useEffect(() => { 
+    // Remove the automatic timer-based winner show to favor the explicit close trigger
+    // but keep it as a fallback for other modes if needed.
+    if (isFinished && !showWinner) {
+      // const timer = setTimeout(() => setShowWinner(true), 1500);
+      // return () => clearTimeout(timer);
+    }
+  }, [isFinished, showWinner]);
 
   const generateMatchNews = async (match: Match) => {
     const home = state.teams.find(t => t.id === match.homeTeamId);
@@ -298,6 +573,8 @@ const App: React.FC = () => {
 
       const data = JSON.parse(response.text);
       if (data && data.questions && data.questions.length > 0) {
+        // Close match overlay only when interview is ready
+        setSelectedMatchId(null);
         setCurrentInterview({
           matchId: match.id,
           questions: data.questions,
@@ -322,14 +599,110 @@ const App: React.FC = () => {
     }
   };
 
-  const goToDraw = (teams: Team[], mode: TournamentMode, type: TournamentType, managerName: string) => {
+  const startTournament = async (teams: Team[], mode: TournamentMode, type: TournamentType, managerName: string, allowViewerEdit: boolean = false) => {
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    const newId = `tour-${Date.now()}`;
+    
     const enrichedTeams = teams.map(t => ({
       ...t,
       country: getTeamCountry(t.name)
     }));
-    setState(prev => ({ ...prev, teams: enrichedTeams, mode, type, managerName, isDrawing: true, isStarted: false }));
-    setViewingMenu(false);
-    playAnthem();
+
+    if (!user) {
+      await handleGoogleLogin();
+      return;
+    }
+
+    const newState: TournamentState = {
+      id: newId,
+      teams: enrichedTeams,
+      matches: [],
+      mode,
+      type,
+      managerName,
+      isStarted: true,
+      isDrawing: true,
+      teamPlayers: {},
+      socialFeed: [],
+      roomPin: pin,
+      adminId: user.uid,
+      isOnline: true,
+      allowViewerEdit,
+      participants: [{
+        uid: user.uid,
+        name: user.displayName || 'Manager',
+        avatar: user.photoURL || '',
+        teamId: favoriteTeam?.id || null,
+        teamName: favoriteTeam?.name || null
+      }]
+    };
+
+    try {
+      setViewingMenu(false);
+      setState(newState);
+      await setDoc(doc(db, 'tournaments', newId), {
+        id: newId,
+        pin,
+        adminId: user?.uid,
+        state: newState,
+        createdAt: serverTimestamp()
+      });
+      playAnthem();
+    } catch (e) {
+      console.error("Tournament creation failed", e);
+      alert("Turnir yaradıla bilmədi. İnternet bağlantısını yoxlayın.");
+    }
+  };
+
+  const joinTournament = async (pin: string) => {
+    try {
+      const q = query(collection(db, 'tournaments'), where('pin', '==', pin));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        alert("Səhv PIN! Belə bir turnir tapılmadı.");
+        return;
+      }
+
+      const tourDoc = querySnapshot.docs[0];
+      const data = tourDoc.data();
+      const tourState = data.state as TournamentState;
+      
+      // Update participants list
+      if (user) {
+        const participants = [...(tourState.participants || [])];
+        if (!participants.some(p => p.uid === user.uid)) {
+          participants.push({
+            uid: user.uid,
+            name: user.displayName || 'Viewer',
+            avatar: user.photoURL || '',
+            teamId: favoriteTeam?.id || null,
+            teamName: favoriteTeam?.name || null
+          });
+          
+          await updateDoc(doc(db, 'tournaments', tourDoc.id), {
+            'state.participants': participants
+          });
+        }
+      }
+
+      setViewingMenu(false);
+      setState({
+        ...tourState,
+        id: tourDoc.id,
+        isOnline: true,
+        roomPin: data.pin,
+        adminId: data.adminId
+      });
+      playAnthem();
+    } catch (e) {
+      console.error("Join failed", e);
+      alert("Qoşulma xətası.");
+    }
+  };
+
+  const goToDraw = (teams: Team[], mode: TournamentMode, type: TournamentType, managerName: string, allowViewerEdit: boolean) => {
+    startTournament(teams, mode, type, managerName, allowViewerEdit);
   };
 
   const handleIntroComplete = () => {
@@ -355,6 +728,7 @@ const App: React.FC = () => {
           ],
           isBlocked: false,
           toxicityCount: 0,
+          toxicityLevel: 0,
           relationshipLevel: 10 // Start with some level
         };
       }
@@ -386,10 +760,20 @@ const App: React.FC = () => {
     });
 
     try {
+      const finishedMatches = state.matches.filter(m => m.isFinished);
+      const matchContext = finishedMatches.map(m => {
+        const h = state.teams.find(t => t.id === m.homeTeamId)?.name;
+        const a = state.teams.find(t => t.id === m.awayTeamId)?.name;
+        return `${h} ${m.homeScore}-${m.awayScore} ${a} (Qollar: ${[...(m.homeScorers || []), ...(m.awayScorers || [])].join(', ')}, Asistlər: ${[...(m.homeAssists || []), ...(m.awayAssists || [])].join(', ')}, MVP: ${m.mvp})`;
+      }).join('\n');
+
       const prompt = `Sən İnstagramda "${conversation.author}" (@${handle}) adlı futbol azarkeşisən. 
       İstifadəçi sənə bu mesajı yazdı: "${text}".
       
-      Sənin xarakterin: Futbolu çox sevən, bəzən emosional, amma ümumilikdə səmimi biridir.
+      Sənin xarakterin: İlk öncə istifadəçi ilə qısa bir tanışlıq söhbəti olsun (məsələn: "Salam, necəsən?", "Tanış olduğumuza şadam"), amma çox uzatmadan tez bir zamanda futbol mövzusuna və ya başqa maraqlı sahələrə keçid al. Səmimi və mehriban ol.
+      
+      Turnir haqqında məlumatlar (əgər istifadəçi soruşsa):
+      ${matchContext}
       
       Əgər istifadəçi sənə qarşı təhqir, söyüş və ya çox kobud sözlər yazsa (pis sözlər), sən onu ciddi şəkildə təhdid et (məsələn: "Bir də belə yazsan səni bloklayacam!").
       Əgər istifadəçi artıq bir neçə dəfə xəbərdarlıq alıbsa və hələ də davam edirsə, cavabında mütləq "BLOK" sözünü işlət.
@@ -408,7 +792,9 @@ const App: React.FC = () => {
         const dmConversations = { ...(prev.dmConversations || {}) };
         const conv = dmConversations[handle];
         let newToxicityCount = conv.toxicityCount + (data.isToxic ? 1 : 0);
+        let newToxicityLevel = Math.min(100, newToxicityCount * 35);
         let shouldBlock = data.reply.includes("BLOK") || newToxicityCount >= 3;
+        if (shouldBlock) newToxicityLevel = 100;
 
         const aiMsg: DirectMessage = {
           id: Date.now().toString() + 'ai',
@@ -422,6 +808,7 @@ const App: React.FC = () => {
           messages: [...conv.messages, aiMsg],
           isBlocked: shouldBlock,
           toxicityCount: newToxicityCount,
+          toxicityLevel: newToxicityLevel,
           relationshipLevel: data.isToxic ? Math.max(0, relationshipLevel - 15) : Math.min(100, relationshipLevel + 5)
         };
         return { ...prev, dmConversations };
@@ -461,11 +848,17 @@ const App: React.FC = () => {
 
     setState(prev => {
       const dmConversations = { ...(prev.dmConversations || {}) };
+      const currentToxicityCount = dmConversations[handle].toxicityCount || 0;
+      const newToxicityCount = shouldBlock ? 3 : currentToxicityCount + (callCount > 3 ? 1 : 0);
+      const newToxicityLevel = Math.min(100, newToxicityCount * 35 + (callCount * 10));
+
       dmConversations[handle] = {
         ...dmConversations[handle],
         messages: [...dmConversations[handle].messages, aiMsg],
         callCount: callCount,
         lastCallTime: now,
+        toxicityCount: newToxicityCount,
+        toxicityLevel: Math.min(100, newToxicityLevel),
         isBlocked: shouldBlock || dmConversations[handle].isBlocked
       };
       return { ...prev, dmConversations };
@@ -498,13 +891,16 @@ const App: React.FC = () => {
 
   const finalizeDraw = (shuffledTeams: Team[]) => {
     const fixtures = generateFixtures(shuffledTeams, state.mode, state.type);
-    setState(prev => ({ 
-      ...prev, 
+    const newState = { 
+      ...state, 
       teams: shuffledTeams, 
       matches: fixtures, 
       isDrawing: false, 
       isStarted: true 
-    }));
+    };
+    setState(newState);
+    if (state.isOnline) syncToFirebase(newState);
+    
     if (audioRef.current) audioRef.current.pause();
     setShowIntroVideo(true);
   };
@@ -574,6 +970,9 @@ const App: React.FC = () => {
 
       const data = JSON.parse(response.text);
       
+      const isBigGame = match.stageName === 'Final' || match.stageName === 'Yarımfinal' || match.stageName === '1/4 Final' || match.isKnockout;
+      const baseLikes = isBigGame ? Math.floor(Math.random() * 500000) + 500000 : Math.floor(Math.random() * 50000) + 10000;
+
       const newPost: SocialPost = {
         id: Date.now().toString(),
         matchTitle: `${home.name} vs ${away.name}`,
@@ -584,6 +983,7 @@ const App: React.FC = () => {
         stadium: teamStadiums[home.name] || teamStadiums[away.name] || 'Milli Stadion',
         country: getTeamCountry(home.name) || getTeamCountry(away.name) || 'Avropa',
         timestamp: new Date().toLocaleTimeString('az-AZ', { hour: '2-digit', minute: '2-digit' }),
+        likes: baseLikes,
         comments: [
           {
             id: Date.now().toString() + '1',
@@ -631,6 +1031,10 @@ const App: React.FC = () => {
   };
 
   const updateMatchScore = async (matchId: string, updates: Partial<Match>) => {
+    if (state.isOnline && state.adminId !== user?.uid) {
+      alert("Yalnız Admin xalları daxil edə bilər!");
+      return;
+    }
     setState(prev => {
       const newTeamPlayers = { ...prev.teamPlayers };
       const currentMatch = prev.matches.find(m => m.id === matchId);
@@ -689,6 +1093,12 @@ const App: React.FC = () => {
       };
     });
 
+    // Sync to Firebase if online
+    setState(prev => {
+      if (prev.isOnline) syncToFirebase(prev);
+      return prev;
+    });
+
     // We need to get the updated match to check if it's finished and generate news/interview
     setTimeout(async () => {
       setState(prev => {
@@ -709,18 +1119,95 @@ const App: React.FC = () => {
     }, 0);
   };
 
-  const saveTournament = (name: string) => {
-    const st = calculateStandings(state.teams, state.matches);
-    const newRecord: SavedTournament = { 
-      id: Date.now().toString(), 
-      name, 
-      date: new Date().toLocaleString('az-AZ'), 
-      standings: st, 
-      matches: JSON.parse(JSON.stringify(state.matches)), 
-      type: state.type 
-    };
-    setHistory(prev => [newRecord, ...prev]);
-    alert('Turnir yaddaşa verildi!');
+  const saveTournament = async (name: string) => {
+    if (!name.trim()) return;
+    try {
+      const st = calculateStandings(state.teams, state.matches);
+      
+      // Create a clean copy of the state to save
+      const stateToSave = JSON.parse(JSON.stringify(state));
+      stateToSave.managerName = name.trim(); // Update name
+      
+      const newRecord: SavedTournament = { 
+        id: Date.now().toString(), 
+        name: name.trim(), 
+        date: new Date().toLocaleString('az-AZ'), 
+        standings: st, 
+        matches: stateToSave.matches, 
+        type: state.type,
+        state: stateToSave
+      };
+
+      setHistory(prev => [newRecord, ...prev]);
+
+      // If logged in, save to Firestore
+      if (user) {
+        const tourData = {
+          id: state.id,
+          adminId: user.uid,
+          state: {
+            ...stateToSave,
+            managerName: name.trim()
+          },
+          createdAt: serverTimestamp(),
+          pin: state.roomPin || Math.floor(100000 + Math.random() * 900000).toString()
+        };
+        
+        await setDoc(doc(db, 'tournaments', state.id), tourData, { merge: true });
+      }
+
+      setSaveStatus({ type: 'success', message: 'Turnir tarixçəyə əlavə edildi!' });
+      setTimeout(() => setSaveStatus(null), 3000);
+      setShowSaveModal(false);
+      setSaveName('');
+      
+      // Update local state name too
+      setState(prev => ({ ...prev, managerName: name.trim() }));
+    } catch (error) {
+      console.error("Save tournament error:", error);
+      setSaveStatus({ type: 'error', message: 'Xəta baş verdi. Yenidən yoxlayın.' });
+    }
+  };
+
+  const resumeTournament = (saved: SavedTournament) => {
+    setState({
+      ...saved.state,
+      isOnline: false
+    });
+    setViewingMenu(false);
+    setShowHistory(false);
+    alert(`${saved.name} turniri bərpa olundu!`);
+  };
+
+  const getOverallMVP = (): string => {
+    const mvps = state.matches.map(m => m.mvp).filter(Boolean) as string[];
+    if (mvps.length === 0) return "Müəyyən edilməyib";
+    const counts: Record<string, number> = {};
+    mvps.forEach(m => counts[m] = (counts[m] || 0) + 1);
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+  };
+
+  const resetTournament = () => {
+    setState({
+      id: `tour-${Date.now()}`,
+      teams: [],
+      matches: [],
+      mode: TournamentMode.SINGLE,
+      type: TournamentType.CHAMPIONS_LEAGUE,
+      managerName: 'Baş məşqçi',
+      isStarted: false,
+      isDrawing: false,
+      teamPlayers: {},
+      socialFeed: []
+    });
+    setViewingMenu(true);
+    setShowWinner(false);
+    localStorage.removeItem(STORAGE_KEY);
+  };
+
+  const saveAndResetTournament = (name: string) => {
+    saveTournament(name);
+    resetTournament();
   };
 
   const st = useMemo(() => calculateStandings(state.teams, state.matches), [state.teams, state.matches, resetKey]);
@@ -732,72 +1219,262 @@ const App: React.FC = () => {
   }, [state.teams, state.matches, state.mode, resetKey]);
   const showSetup = viewingMenu || (!state.isStarted && !state.isDrawing);
 
-  return (
-    <div className="min-h-screen flex flex-col ucl-bg-pattern font-display selection:bg-[#39FF14] selection:text-[#010412] transition-all duration-300" style={{ zoom: zoomLevel / 100 }}>
-      {state.isStarted && !showSetup && !(state.type === TournamentType.CHAMPIONS_LEAGUE && state.mode === TournamentMode.KNOCKOUT && !state.isDrawing) && (
-        <header className="relative z-10 border-b border-white/10 glass-panel-white px-2 md:px-8 py-2 md:py-5 flex items-center justify-between shadow-2xl backdrop-blur-md sticky top-0">
-          <div className="flex items-center gap-1 md:gap-4">
-            <div className="w-6 h-6 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center shadow-lg ring-1 md:ring-2 ring-white/20">
-              <span className="material-symbols-outlined text-[#001242] font-bold text-sm md:text-2xl">sports_soccer</span>
+  if (!isAuthReady) return null;
+
+  // Forced Login Screen (Nocturnal Arena Theme)
+  if (!user && !isGuest) {
+    return (
+      <div className="bg-surface font-body text-on-surface overflow-hidden min-h-screen relative flex flex-col items-center justify-center px-6">
+        {/* Background Environment */}
+        <div className="fixed inset-0 stadium-glow z-0">
+          {/* Subtle Glow Elements */}
+          <div className="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] rounded-full bg-primary/5 blur-[120px]"></div>
+          <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-secondary-fixed/5 blur-[120px]"></div>
+          {/* Subtle Particles Layout */}
+          <div className="absolute top-1/4 left-1/4 w-1 h-1 particle"></div>
+          <div className="absolute top-3/4 left-1/3 w-2 h-2 particle"></div>
+          <div className="absolute top-1/2 right-1/4 w-1.5 h-1.5 particle"></div>
+          <div className="absolute bottom-1/4 right-1/3 w-1 h-1 particle"></div>
+        </div>
+
+        {/* Main Content Canvas */}
+        <main className="relative z-10 min-h-screen flex flex-col items-center justify-center px-6">
+          {/* Brand Identity Section */}
+          <div className="mb-12 flex flex-col items-center animate-in fade-in slide-in-from-top-10 duration-1000">
+            <div className="relative mb-6">
+              {/* Glowing Logo Backdrop */}
+              <div className="absolute inset-0 bg-primary/20 blur-3xl rounded-full transform scale-150"></div>
+              <div className="relative flex items-center justify-center">
+                <span className="material-symbols-outlined text-8xl text-primary drop-shadow-[0_0_30px_rgba(177,198,252,0.5)]" style={{ fontVariationSettings: "'FILL' 1" }}>sports_soccer</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <h1 className="font-display text-xs md:text-2xl font-black tracking-tighter text-white leading-none">
-                FUTBOL <span className="text-neon">PRO</span>
-              </h1>
+            <h1 className="font-headline font-black text-4xl md:text-6xl tracking-tighter text-center text-primary-fixed-dim uppercase drop-shadow-2xl">Futbol<span className="text-secondary-fixed drop-shadow-[0_0_15px_rgba(97,255,151,0.6)] font-black">Pro</span></h1>
+            <p className="font-headline text-on-surface-variant font-medium tracking-[0.2em] text-xs md:text-sm mt-2">GECƏ ARENASI</p>
+          </div>
+
+          {/* Premium Login Container */}
+          <div className="login-glass-card w-full max-w-md rounded-[40px] p-10 flex flex-col items-center gap-8 shadow-[0_32px_64px_-12px_rgba(0,0,0,0.6)] shadow-[0_40px_100px_-20px_rgba(0,0,0,0.9),0_20px_50px_-10px_rgba(0,0,0,0.8)] animate-in zoom-in duration-700">
+            <div className="w-full space-y-4">
+              {/* Google Login Button */}
+              <button 
+                onClick={handleGoogleLogin}
+                disabled={isLoggingIn}
+                className="w-full flex items-center justify-center gap-4 bg-white hover:bg-slate-100 transition-all duration-300 py-4 px-6 rounded-full active:scale-[0.98] group shadow-xl disabled:opacity-70"
+              >
+                {isLoggingIn ? (
+                  <div className="w-6 h-6 border-2 border-slate-900/20 border-t-slate-900 rounded-full animate-spin"></div>
+                ) : (
+                  <img alt="Google Icon" className="w-6 h-6" src="https://lh3.googleusercontent.com/COxitqgJr1sICpeqCuQE0m2WF6LQU97S0898p-8fS4Wv7U8UvQ99v6Gu0E-x8m73yS8T9w=s120"/>
+                )}
+                <span className="text-[#1f1f1f] font-headline font-bold text-lg">
+                  {isLoggingIn ? 'Giriş edilir...' : 'Google ilə giriş et'}
+                </span>
+              </button>
+              {/* Guest Login Button */}
+              <button 
+                onClick={() => setIsGuest(true)}
+                className="w-full flex items-center justify-center gap-4 bg-surface-container-highest/40 hover:bg-surface-container-highest/60 neon-border transition-all duration-300 py-4 px-6 rounded-full active:scale-[0.98] group shadow-xl"
+              >
+                <span className="material-symbols-outlined text-secondary-fixed group-hover:scale-110 transition-transform">person_outline</span>
+                <span className="text-secondary font-headline font-semibold text-lg tracking-wide">Qonaq kimi davam et</span>
+              </button>
+            </div>
+
+            {/* Divider (Minimal Editorial Style) */}
+            <div className="flex items-center w-full gap-4">
+              <div className="h-[1px] flex-grow bg-gradient-to-r from-transparent via-outline-variant/30 to-transparent"></div>
+              <span className="text-[10px] font-label font-bold text-on-surface-variant uppercase tracking-widest">və ya</span>
+              <div className="h-[1px] flex-grow bg-gradient-to-r from-transparent via-outline-variant/30 to-transparent"></div>
+            </div>
+
+            {/* Subtle Registration Link */}
+            <div className="text-center">
+              <p className="text-on-surface-variant text-sm font-medium">
+                Hələ də üzv deyilsiniz? <a className="text-primary hover:text-primary-fixed-dim font-bold transition-colors" href="#">Qeydiyyat</a>
+              </p>
             </div>
           </div>
-          
-          <div className="flex items-center gap-1 md:gap-3">
-            {state.matches.some(m => m.isFinished) && (
-              <button 
-                onClick={() => setShowPressCoverage(true)} 
-                className="group relative flex items-center gap-1 px-2 py-1 md:px-4 md:py-2.5 rounded-lg md:rounded-xl bg-gradient-to-r from-[#facc15] to-[#f97316] text-[#010412] font-black text-[8px] md:text-xs uppercase tracking-widest shadow-[0_0_20px_rgba(250,204,21,0.3)] hover:shadow-[0_0_30px_rgba(250,204,21,0.5)] hover:scale-105 transition-all animate-pulse hover:animate-none"
-                title="Qlobal Mətbuat Reaksiyaları"
-              >
-                <span className="material-symbols-outlined text-xs md:text-base">newspaper</span>
-                <span className="hidden md:inline">MƏTBUAT</span>
-              </button>
+
+          {/* Footer Identity */}
+          <footer className="mt-16 text-center">
+            <p className="font-label text-[10px] uppercase tracking-[0.4em] text-secondary-fixed/60 font-bold">
+              Polad tərəfindən hazırlandı
+            </p>
+          </footer>
+        </main>
+
+        {/* Visual Decoration (Asymmetrical Balance) */}
+        <div className="fixed top-0 right-0 w-full h-full pointer-events-none z-0 overflow-hidden">
+          <img 
+            aria-hidden="true" 
+            className="absolute top-[-10%] right-[-10%] w-[80%] h-[80%] object-cover opacity-10 mix-blend-screen" 
+            src="https://lh3.googleusercontent.com/aida-public/AB6AXuBmp5Im_PEdEOMTmsxdY3uOFEYVS4bI7E-4fAJBDEKdR1p0EPspNHuwJUaaePPh13PXrUda6S883wYdoHSolN77E2c7v-xoQ6MohaBUeuJkK57kilXsH_yI_62lMpXx-4n9_6v5HLHATSmyO2x37yaDf81Xe4PO8W8LwGLPB_9w_GjP-whUbikQat0yb5f-kHCPV-9F7etn0yp--PpnJQtKuhattdieTR8oOhcr8v2ZZa7osDYCR2KOwwEGb65xLA9vrnSaRObeXXo"
+            referrerPolicy="no-referrer"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex flex-col ucl-bg-pattern font-display selection:bg-[#39FF14] selection:text-[#010412] transition-all duration-300 scale-[0.98] md:scale-100 origin-top">
+      {state.isStarted && !showSetup && !state.isDrawing && !(state.type === TournamentType.CHAMPIONS_LEAGUE && state.mode === TournamentMode.KNOCKOUT && !state.isDrawing) && (
+        <header className="fixed top-0 left-0 w-full z-50 px-4 md:px-8 py-4 md:py-6 flex items-center justify-between bg-black/40 backdrop-blur-xl border-b border-white/5">
+          <div className="flex items-center gap-6">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.2)]">
+                <span className="material-symbols-outlined text-[#020617] font-bold text-2xl md:text-3xl">sports_soccer</span>
+              </div>
+              <div className="font-display text-xl md:text-2xl font-black tracking-tighter italic text-white">
+                FUTBOL <span className="text-neon drop-shadow-[0_0_10px_#39FF14]">PRO</span>
+              </div>
+            </div>
+
+            {/* Room PIN Box */}
+            {state.isOnline && (
+              <div className="flex items-center gap-2">
+                <div className="hidden sm:flex flex-col items-center bg-black/40 border border-white/10 rounded-xl px-4 py-1.5 shadow-inner">
+                  <span className="text-[8px] font-black text-white/40 uppercase tracking-[0.2em]">ROOM PIN</span>
+                  <span className="text-xl font-black text-neon tracking-widest drop-shadow-[0_0_8px_#39FF14]">{state.roomPin}</span>
+                </div>
+                
+                {/* Neon Live Participants Button */}
+                <button 
+                  onClick={() => setShowParticipantsModal(true)}
+                  className="flex items-center gap-2 bg-[#39FF14]/10 border border-[#39FF14]/30 rounded-xl px-3 py-2 hover:bg-[#39FF14]/20 transition-all group"
+                >
+                  <div className="w-2 h-2 rounded-full bg-[#39FF14] animate-pulse shadow-[0_0_8px_#39FF14]"></div>
+                  <span className="text-[10px] font-black text-[#39FF14] uppercase tracking-widest drop-shadow-[0_0_5px_#39FF14]">
+                    canlı {state.participants?.length || 1}
+                  </span>
+                </button>
+              </div>
             )}
-            <button 
-              onClick={() => setShowSocialFeed(true)} 
-              className="w-7 h-7 md:w-11 md:h-11 flex items-center justify-center rounded-lg md:rounded-xl bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-600 text-white hover:scale-110 transition-all shadow-lg shadow-purple-500/20"
-              title="Sosial Media"
-            >
-              <span className="material-symbols-outlined text-sm md:text-xl">photo_camera</span>
-            </button>
-            <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg md:rounded-xl p-1">
+          </div>
+
+          <div className="flex items-center gap-2 md:gap-4">
+            {/* Icons Group */}
+            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl p-1.5">
               <button 
-                onClick={() => setZoomLevel(Math.max(50, zoomLevel - 10))}
-                className="w-7 h-7 md:w-9 md:h-9 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                title="Kiçilt"
+                onClick={toggleMute} 
+                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isMuted ? 'bg-rose-500/20 text-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'text-white/40 hover:text-white'}`}
               >
-                <span className="material-symbols-outlined text-sm md:text-lg">zoom_out</span>
+                <span className="material-symbols-outlined text-xl">{isMuted ? 'volume_off' : 'volume_up'}</span>
               </button>
-              <span className="text-[10px] md:text-xs font-black text-white w-8 md:w-12 text-center">{zoomLevel}%</span>
               <button 
-                onClick={() => setZoomLevel(Math.min(150, zoomLevel + 10))}
-                className="w-7 h-7 md:w-9 md:h-9 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                title="Böyüt"
+                onClick={() => setShowStatsDashboard(true)}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all"
               >
-                <span className="material-symbols-outlined text-sm md:text-lg">zoom_in</span>
+                <span className="material-symbols-outlined text-xl">bar_chart</span>
+              </button>
+              <button 
+                onClick={() => setShowSocialFeed(true)}
+                className="w-10 h-10 rounded-xl flex items-center justify-center text-pink-500 bg-pink-500/10 hover:bg-pink-500/20 transition-all"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                </svg>
               </button>
             </div>
-            <button 
-              onClick={() => setShowStatsDashboard(true)} 
-              className="w-7 h-7 md:w-auto md:px-5 md:py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-lg md:rounded-xl border border-emerald-500/20 transition-all flex items-center justify-center"
-            >
-              <span className="material-symbols-outlined text-sm md:text-xl md:hidden">bar_chart</span>
-              <span className="hidden md:inline text-[10px] font-black uppercase tracking-widest">Statistika</span>
-            </button>
-            <button 
-              onClick={() => setViewingMenu(true)} 
-              className="w-7 h-7 md:w-auto md:px-6 md:py-2.5 rounded-lg md:rounded-xl bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 transition-all flex items-center justify-center"
-            >
-              <span className="material-symbols-outlined text-sm md:text-xl md:hidden">menu</span>
-              <span className="hidden md:inline text-xs font-bold uppercase tracking-widest">Menyu</span>
-            </button>
+
+            {/* Buttons Group */}
+            <div className="flex items-center gap-2">
+              {user && (
+                <div className="relative mr-2">
+                  <button 
+                    onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                    className="w-10 h-10 rounded-full border-2 border-neon-green/30 overflow-hidden hover:border-neon-green transition-all"
+                  >
+                    <img src={user.photoURL || ""} className="w-full h-full object-cover" alt="" />
+                  </button>
+                  {showProfileDropdown && (
+                    <UserProfileDropdown 
+                      user={user} 
+                      onLogout={() => auth.signOut()} 
+                      onClose={() => setShowProfileDropdown(false)} 
+                      onSelectView={setActiveProfileView}
+                    />
+                  )}
+                </div>
+              )}
+              <button 
+                onClick={() => setShowSaveModal(true)}
+                className="flex items-center gap-2 px-4 md:px-6 py-3 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-xl border border-blue-500/20 transition-all shadow-lg"
+              >
+                <span className="material-symbols-outlined text-sm">save</span>
+                <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">YADDA SAXLA</span>
+              </button>
+              <button 
+                onClick={() => setViewingMenu(true)}
+                className="flex items-center gap-2 px-4 md:px-6 py-3 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-xl border border-white/10 transition-all"
+              >
+                <span className="material-symbols-outlined text-sm">menu</span>
+                <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">MENYU</span>
+              </button>
+            </div>
           </div>
         </header>
+      )}
+
+      {activeProfileView === 'tournaments' && (
+        <MyTournaments 
+          tournaments={userTournaments} 
+          onSelectTournament={(id) => {
+            const tour = userTournaments.find(t => t.id === id);
+            if (tour) {
+              setState({ ...tour, isViewOnly: true });
+              setViewingMenu(false);
+              setActiveProfileView(null);
+            }
+          }}
+          onClose={() => setActiveProfileView(null)}
+        />
+      )}
+
+      {activeProfileView === 'stats' && (
+        <MatchHistory 
+          matches={userMatchHistory} 
+          onClose={() => setActiveProfileView(null)} 
+          favoriteTeam={favoriteTeam}
+          onMatchClick={(m) => {
+            setSelectedMatchId(m.id);
+          }}
+        />
+      )}
+
+      {activeProfileView === 'preferences' && (
+        <TeamPreferences 
+          initialTeam={favoriteTeam}
+          onSave={handleSaveFavoriteTeam}
+          onClose={() => setActiveProfileView(null)}
+          isMandatory={!favoriteTeam && !!user}
+        />
+      )}
+
+      {activeProfileView === 'settings' && (
+        <AppSettings 
+          onClose={() => setActiveProfileView(null)}
+        />
+      )}
+
+      {activeProfileView === 'help' && (
+        <RulesAndHelp 
+          onClose={() => setActiveProfileView(null)}
+        />
+      )}
+
+      {activeProfileView === 'logout' && (
+        <LogoutConfirmation 
+          onConfirm={() => {
+            auth.signOut();
+            setIsGuest(false);
+            setActiveProfileView(null);
+          }}
+          onCancel={() => setActiveProfileView(null)}
+        />
       )}
 
       {showStatsDashboard && (
@@ -805,39 +1482,101 @@ const App: React.FC = () => {
           onClose={() => setShowStatsDashboard(false)} 
           teams={state.teams} 
           matches={state.matches} 
-          zoomLevel={zoomLevel}
-          onZoomChange={setZoomLevel}
         />
       )}
 
-      {selectedMatchId && (
+      {showParticipantsModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" onClick={() => setShowParticipantsModal(false)}></div>
+          <div className="relative w-full max-w-md elite-glass-card rounded-[2.5rem] p-8 md:p-10 border border-[#39FF14]/20 bg-[#010617] shadow-[0_0_80px_rgba(57,255,20,0.1)] overflow-hidden animate-in zoom-in duration-300">
+            <div className="flex justify-between items-center mb-10">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-[#39FF14]/10 rounded-2xl flex items-center justify-center border border-[#39FF14]/20">
+                  <span className="material-symbols-outlined text-[#39FF14] text-3xl">hub</span>
+                </div>
+                <div>
+                  <h3 className="text-2xl font-black text-white uppercase italic tracking-tight">TURNİR ŞƏBƏKƏSİ</h3>
+                  <p className="text-[10px] text-[#39FF14] font-black uppercase tracking-widest opacity-60">Canlı qoşulmalar</p>
+                </div>
+              </div>
+              <button onClick={() => setShowParticipantsModal(false)} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:text-white transition-colors border border-white/5">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-[50vh] overflow-y-auto custom-scrollbar pr-2">
+              {(state.participants || []).length > 0 ? (state.participants || []).map((participant, index) => (
+                <div key={index} className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all group">
+                  <div className="flex items-center gap-4">
+                    <div className="relative">
+                      <div className="absolute -inset-1 bg-neon opacity-20 rounded-full blur group-hover:opacity-40 transition-opacity"></div>
+                      <img src={participant.avatar} className="relative w-12 h-12 rounded-full border-2 border-neon object-cover" alt="" referrerPolicy="no-referrer" />
+                    </div>
+                    <div>
+                      <h4 className="text-white font-black text-sm uppercase italic tracking-tight">{participant.name}</h4>
+                      {participant.teamName && (
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-[9px] font-black text-neon uppercase tracking-widest">{participant.teamName}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {participant.uid === state.adminId && (
+                    <div className="px-3 py-1 bg-neon/10 border border-neon/30 rounded-full">
+                      <span className="text-[7px] font-black text-neon uppercase tracking-widest">ADMIN</span>
+                    </div>
+                  )}
+                </div>
+              )) : (
+                <div className="text-center py-12 opacity-40">
+                  <span className="material-symbols-outlined text-4xl mb-2">person_off</span>
+                  <p className="text-xs font-bold uppercase tracking-widest">Heç kim yoxdur</p>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-8 pt-8 border-t border-white/5 flex items-center justify-center">
+              <div className="px-4 py-2 bg-neon/5 border border-neon/10 rounded-xl">
+                 <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.3em]">
+                   Oyunçu Kodu: <span className="text-neon tracking-widest">{state.roomPin}</span>
+                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedMatchData && (
         <MatchStatsOverlay 
-          match={state.matches.find(m => m.id === selectedMatchId)!} 
-          allMatches={state.matches}
-          homeTeam={state.teams.find(t => t.id === state.matches.find(m => m.id === selectedMatchId)?.homeTeamId)!}
-          awayTeam={state.teams.find(t => t.id === state.matches.find(m => m.id === selectedMatchId)?.awayTeamId)!}
-          teamPlayers={state.teamPlayers || {}}
+          match={selectedMatchData.match} 
+          allMatches={selectedMatchData.allMatches}
+          homeTeam={selectedMatchData.homeTeam}
+          awayTeam={selectedMatchData.awayTeam}
+          teamPlayers={selectedMatchData.teamPlayers}
+          tournamentId={selectedMatchData.tournamentId}
           onUpdateScore={updateMatchScore}
           onStartInterview={generateInterview}
-          onClose={() => setSelectedMatchId(null)} 
-          zoomLevel={zoomLevel}
-          onZoomChange={setZoomLevel}
+          onClose={handleMatchStatsClose} 
+          canEdit={selectedMatchData.canEdit}
         />
       )}
 
-      {state.type === TournamentType.CHAMPIONS_LEAGUE && (state.mode === TournamentMode.KNOCKOUT || state.mode === TournamentMode.LEAGUE_KNOCKOUT) && !showSetup && !state.isDrawing ? (
+      {state.type === TournamentType.CHAMPIONS_LEAGUE && (state.mode === TournamentMode.KNOCKOUT || state.mode === TournamentMode.LEAGUE_KNOCKOUT || state.mode === TournamentMode.LEAGUE) && !showSetup && !state.isDrawing ? (
         <UclKnockoutView 
           state={state} 
           onMatchClick={setSelectedMatchId} 
           onOpenStats={() => setShowStatsDashboard(true)} 
           onOpenSocial={() => setShowSocialFeed(true)} 
           onOpenMenu={() => setViewingMenu(true)} 
+          isMuted={isMuted}
+          onToggleMute={toggleMute}
         />
       ) : (
         <main className="flex-grow container mx-auto px-1 md:px-6 py-2 md:py-10 relative z-10">
           {showSetup ? (
             <TournamentSetup 
               onStart={goToDraw} 
+              onJoin={joinTournament}
               initialTeams={state.teams} 
               initialType={state.type}
               initialMode={state.mode}
@@ -846,9 +1585,12 @@ const App: React.FC = () => {
               onResume={() => setViewingMenu(false)} 
               isMuted={isMuted} 
               onToggleMute={toggleMute} 
-              zoomLevel={zoomLevel}
-              onZoomChange={setZoomLevel}
               onOpenSocialFeed={() => setShowSocialFeed(true)}
+              user={user}
+              onLogin={handleGoogleLogin}
+              isLoggingIn={isLoggingIn}
+              favoriteTeam={favoriteTeam}
+              onSelectProfileView={setActiveProfileView}
             />
           ) : state.isDrawing ? (
             state.type === TournamentType.WORLD_CUP ? (
@@ -860,8 +1602,6 @@ const App: React.FC = () => {
                 isMuted={isMuted} 
                 onToggleMute={toggleMute} 
                 onBackToMenu={() => setViewingMenu(true)} 
-                zoomLevel={zoomLevel}
-                onZoomChange={setZoomLevel}
                 onOpenSocialFeed={() => setShowSocialFeed(true)}
               />
             ) : (
@@ -872,8 +1612,6 @@ const App: React.FC = () => {
                 isMuted={isMuted} 
                 onToggleMute={toggleMute} 
                 onBackToMenu={() => setViewingMenu(true)} 
-                zoomLevel={zoomLevel}
-                onZoomChange={setZoomLevel}
                 onOpenSocialFeed={() => setShowSocialFeed(true)}
               />
             )
@@ -883,7 +1621,7 @@ const App: React.FC = () => {
               <section className="lg:col-span-5 flex flex-col gap-4 md:gap-6 order-2 lg:order-1 animate-in slide-in-from-left duration-500">
                  <div className="flex items-center gap-3">
                    <div className="w-1.5 h-6 md:h-8 bg-neon rounded-full shadow-neon"></div>
-                   <h2 className="font-display text-xl md:text-2xl font-black uppercase tracking-widest text-white italic">Oyunlar</h2>
+                   <h2 className="font-display text-xl md:text-3xl font-black uppercase tracking-widest text-white italic">EŞLEŞMELER</h2>
                  </div>
                  <Fixtures 
                     matches={state.matches} 
@@ -892,8 +1630,6 @@ const App: React.FC = () => {
                     onUpdateScore={updateMatchScore} 
                     onStartInterview={generateInterview}
                     type={state.type}
-                    zoomLevel={zoomLevel}
-                    onZoomChange={setZoomLevel}
                     onMatchClick={setSelectedMatchId}
                  />
               </section>
@@ -904,11 +1640,11 @@ const App: React.FC = () => {
                  <h2 className="font-display text-xl md:text-2xl font-black uppercase tracking-widest text-white italic">Cədvəl</h2>
                </div>
                {state.mode === TournamentMode.KNOCKOUT ? (
-                 <div className="premium-glass-card rounded-3xl md:rounded-[2.5rem] p-4 md:p-8 shadow-2xl relative overflow-hidden bg-[#020d2d] border border-white/10">
+                <div className="premium-glass-card rounded-3xl md:rounded-[2.5rem] p-4 md:p-8 shadow-2xl relative overflow-hidden bg-[#050e1c] border border-white/10">
                    <div className="flex items-center justify-between mb-6 md:mb-10">
-                     <div className="flex items-center gap-2 md:gap-3">
-                        <div className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-neon animate-pulse"></div>
-                        <span className="text-[9px] md:text-[11px] font-black text-neon uppercase tracking-[0.2em] italic">PLEY-OFF AĞACI</span>
+                     <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-6 md:h-8 bg-neon rounded-full shadow-neon"></div>
+                        <h2 className="font-display text-xl md:text-3xl font-black uppercase tracking-widest text-white italic">PLEY-OFF AĞACI</h2>
                      </div>
                    </div>
                    <BracketView 
@@ -920,13 +1656,13 @@ const App: React.FC = () => {
                ) : (
                  <div className="flex flex-col gap-6">
                    {activeStandingsView === 'standings' ? (
-                     <Standings standings={st} groupedStandings={groupedSt} onSave={saveTournament} isFinished={isFinished} />
+                     <Standings standings={st} groupedStandings={groupedSt} onSave={saveTournament} isFinished={isFinished} isViewOnly={state.isViewOnly} />
                    ) : (
-                     <div className="premium-glass-card rounded-3xl md:rounded-[2.5rem] p-4 md:p-8 shadow-2xl relative overflow-hidden bg-[#020d2d] border border-white/10 animate-in fade-in zoom-in duration-500">
+                     <div className="premium-glass-card rounded-3xl md:rounded-[2.5rem] p-4 md:p-8 shadow-2xl relative overflow-hidden bg-[#050e1c] border border-white/10 animate-in fade-in zoom-in duration-500">
                        <div className="flex items-center justify-between mb-6 md:mb-10">
                          <div className="flex items-center gap-2 md:gap-3">
                             <div className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-neon animate-pulse"></div>
-                            <span className="text-[9px] md:text-[11px] font-black text-neon uppercase tracking-[0.2em] italic">PLEY-OFF AĞACI</span>
+                            <h2 className="font-display text-xl md:text-3xl font-black uppercase tracking-widest text-white italic">PLEY-OFF AĞACI</h2>
                          </div>
                        </div>
                        <BracketView 
@@ -943,13 +1679,13 @@ const App: React.FC = () => {
                          onClick={() => setActiveStandingsView('standings')}
                          className={`flex-1 md:flex-none md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all duration-300 ${activeStandingsView === 'standings' ? 'bg-neon text-[#010412] shadow-[0_0_20px_rgba(57,255,20,0.4)]' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'}`}
                        >
-                         Liqa Mərhələsi
+                         LİQA MƏRHƏLƏSİ
                        </button>
                        <button 
                          onClick={() => setActiveStandingsView('bracket')}
                          className={`flex-1 md:flex-none md:px-8 py-3 md:py-4 rounded-xl md:rounded-2xl font-black text-[10px] md:text-xs uppercase tracking-widest transition-all duration-300 ${activeStandingsView === 'bracket' ? 'bg-neon text-[#010412] shadow-[0_0_20px_rgba(57,255,20,0.4)]' : 'bg-white/5 text-white/40 border border-white/10 hover:bg-white/10'}`}
                        >
-                         Pley-off
+                         PLEY-OFF
                        </button>
                      </div>
                    )}
@@ -961,20 +1697,178 @@ const App: React.FC = () => {
         </main>
       )}
 
-      {!(state.type === TournamentType.CHAMPIONS_LEAGUE && state.mode === TournamentMode.KNOCKOUT && !showSetup && !state.isDrawing) && (
+      {!(state.type === TournamentType.CHAMPIONS_LEAGUE && state.mode === TournamentMode.KNOCKOUT && !showSetup && !state.isDrawing) && !showSetup && (
         <footer className="mt-auto p-6 md:p-8 border-t border-white/5 glass-panel-white text-center">
           <p className="font-mono text-[10px] md:text-[11px] tracking-[0.5em] text-white/30 uppercase font-bold">
              Hazırladı <span className="text-neon">Polad</span>
           </p>
         </footer>
       )}
-      {showWinner && getTournamentWinner() && <WinnerOverlay winner={getTournamentWinner()!} onClose={() => setShowWinner(false)} />}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowSaveModal(false)}></div>
+          <div className="relative w-full max-w-md premium-glass-card rounded-3xl p-8 border border-white/10 bg-[#050e1c] shadow-2xl animate-in zoom-in duration-300">
+            <h3 className="text-xl font-black text-white uppercase italic mb-6 tracking-tight">Turniri Yadda Saxla</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[10px] font-black text-white/40 uppercase tracking-widest mb-2">Turnir Adı</label>
+                <input 
+                  autoFocus
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  placeholder="Məs: Çempionlar Liqası 2024"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white outline-none focus:border-blue-500 transition-all font-bold"
+                  onKeyDown={(e) => e.key === 'Enter' && saveName.trim() && saveTournament(saveName)}
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button 
+                  onClick={() => saveName.trim() && saveTournament(saveName)}
+                  disabled={!saveName.trim()}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black py-3 rounded-xl transition-all uppercase text-xs tracking-widest"
+                >
+                  YADDA SAXLA
+                </button>
+                <button 
+                  onClick={() => setShowSaveModal(false)}
+                  className="flex-1 bg-white/5 hover:bg-white/10 text-white/60 font-black py-3 rounded-xl transition-all uppercase text-xs tracking-widest"
+                >
+                  LƏĞV ET
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveStatus && (
+        <div className={`fixed bottom-10 left-1/2 -translate-x-1/2 z-[300] px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl animate-in slide-in-from-bottom-10 duration-500 ${
+          saveStatus.type === 'success' ? 'bg-emerald-500 text-black' : 'bg-rose-500 text-white'
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="material-symbols-outlined text-sm">
+              {saveStatus.type === 'success' ? 'check_circle' : 'error'}
+            </span>
+            {saveStatus.message}
+          </div>
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-10">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-xl" onClick={() => setShowHistory(false)}></div>
+          <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto custom-scrollbar premium-glass-card rounded-[2rem] md:rounded-[3rem] p-6 md:p-12 border border-white/10 shadow-[0_0_100px_rgba(0,0,0,0.5)] bg-[#050e1c]">
+            <div className="flex items-center justify-between mb-8 md:mb-12">
+              <div className="flex items-center gap-4">
+                <div className="w-2 h-8 bg-amber-500 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.5)]"></div>
+                <h2 className="text-2xl md:text-4xl font-black text-white uppercase italic tracking-tighter">TURNİR TARİXÇƏSİ</h2>
+              </div>
+              <button onClick={() => setShowHistory(false)} className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/5 flex items-center justify-center text-white/40 hover:text-white transition-colors">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+
+            <div className="grid gap-4 md:gap-6">
+              {history.length === 0 ? (
+                <div className="text-center py-20 opacity-20">
+                  <span className="material-symbols-outlined text-6xl mb-4">history</span>
+                  <p className="text-xl font-bold uppercase tracking-widest">Hələ ki yadda saxlanılmış turnir yoxdur</p>
+                </div>
+              ) : (
+                history.map((item) => (
+                  <div key={item.id} className="bg-white/5 border border-white/10 rounded-2xl md:rounded-3xl p-4 md:p-8 hover:bg-white/[0.08] transition-all group">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="px-3 py-1 bg-amber-500/20 text-amber-500 text-[8px] md:text-[10px] font-black rounded-full uppercase tracking-widest border border-amber-500/20">
+                            {item.type === TournamentType.CHAMPIONS_LEAGUE ? 'UCL' : 'DÜNYA KUBOKU'}
+                          </span>
+                          <span className="text-[10px] md:text-xs font-bold text-white/30">{item.date}</span>
+                        </div>
+                        <h3 className="text-xl md:text-3xl font-black text-white uppercase italic tracking-tight mb-4">{item.name}</h3>
+                        
+                        <div className="flex flex-wrap gap-4 md:gap-8">
+                          <div className="flex flex-col">
+                            <span className="text-[8px] md:text-[10px] font-black text-white/20 uppercase tracking-widest">KOMANDALAR</span>
+                            <span className="text-sm md:text-lg font-bold text-white">{item.standings.length}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[8px] md:text-[10px] font-black text-white/20 uppercase tracking-widest">OYUNLAR</span>
+                            <span className="text-sm md:text-lg font-bold text-white">{item.matches.length}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[8px] md:text-[10px] font-black text-white/20 uppercase tracking-widest">STATUS</span>
+                            <span className={`text-sm md:text-lg font-bold ${item.matches.every(m => m.isFinished) ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              {item.matches.every(m => m.isFinished) ? 'BİTİB' : 'DAVAM EDİR'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-3">
+                        <button 
+                          onClick={() => resumeTournament(item)}
+                          className="flex-1 md:flex-none px-6 md:px-10 py-3 md:py-4 bg-neon text-[#010412] font-black text-[10px] md:text-xs uppercase tracking-widest rounded-xl md:rounded-2xl shadow-lg active:scale-95 transition-transform"
+                        >
+                          DAVAM ET
+                        </button>
+                        <button 
+                          onClick={() => {
+                            if(confirm('Bu turniri silmək istədiyinizə əminsiniz?')) {
+                              setHistory(prev => prev.filter(h => h.id !== item.id));
+                            }
+                          }}
+                          className="w-12 h-12 md:w-14 md:h-14 flex items-center justify-center bg-rose-500/10 text-rose-500 rounded-xl md:rounded-2xl border border-rose-500/20 hover:bg-rose-500/20 transition-colors"
+                        >
+                          <span className="material-symbols-outlined">delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {showWinner && getTournamentWinner() && (
+        <WinnerOverlay 
+          winner={getTournamentWinner()!} 
+          mvp={getOverallMVP()}
+          onClose={() => setShowWinner(false)} 
+          onReset={(name) => {
+            if (name) saveAndResetTournament(name as string);
+            else resetTournament();
+          }}
+          onPlayPuskas={async () => {
+            const allVideos = await getGoalVideos();
+            console.log("All saved videos:", allVideos.map(v => ({ id: v.id, tourId: v.tournamentId })));
+            console.log("Current tournament ID:", state.id);
+            
+            let filteredVideos = allVideos.filter(v => v.tournamentId === state.id);
+            
+            // Fallback: if no videos found for current ID, but there are videos with 'default'
+            // this helps if tournamentId was somehow lost or not passed
+            if (filteredVideos.length === 0) {
+              filteredVideos = allVideos.filter(v => v.tournamentId === 'default');
+            }
+            
+            setGoalVideos(filteredVideos);
+            setShowPuskas(true);
+          }}
+        />
+      )}
+      
+      {showPuskas && (
+        <PuskasPlayer 
+          videos={goalVideos} 
+          onClose={() => setShowPuskas(false)} 
+        />
+      )}
       {showSocialFeed && (
         <SocialFeedModal 
           onClose={() => setShowSocialFeed(false)} 
           posts={state.socialFeed || []} 
-          zoomLevel={zoomLevel} 
-          onZoomChange={setZoomLevel} 
           onOpenDM={handleOpenDM}
           activeDM={activeDM}
           dmConversations={state.dmConversations || {}}
@@ -990,8 +1884,6 @@ const App: React.FC = () => {
           onClose={() => setShowPressCoverage(false)} 
           latestMatch={state.matches.filter(m => m.isFinished).sort((a, b) => (b.id > a.id ? 1 : -1))[0] || null}
           teams={state.teams}
-          zoomLevel={zoomLevel}
-          onZoomChange={setZoomLevel}
         />
       )}
       <IntroVideo isActive={showIntroVideo} isMuted={isMuted} onComplete={handleIntroComplete} />
@@ -1014,6 +1906,12 @@ const App: React.FC = () => {
             }
           }} 
         />
+      )}
+      {/* App Wide Footer */}
+      {!showSetup && !state.isDrawing && (
+        <div className="fixed bottom-4 left-0 w-full text-center z-50 pointer-events-none opacity-40">
+           <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Polad tərəfindən hazırlandı</p>
+        </div>
       )}
     </div>
   );

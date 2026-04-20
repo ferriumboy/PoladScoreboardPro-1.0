@@ -9,13 +9,11 @@ interface Props {
   isMuted: boolean;
   onToggleMute: () => void;
   onBackToMenu?: () => void;
-  zoomLevel: number;
-  onZoomChange: (zoom: number) => void;
   onOpenSocialFeed?: () => void;
 }
 
 const WorldCupDrawScene: React.FC<Props> = ({
-  teams, mode, onFinish, onStartMusic, isMuted, onToggleMute, onBackToMenu, zoomLevel, onZoomChange
+  teams, mode, onFinish, onStartMusic, isMuted, onToggleMute, onBackToMenu
 }) => {
   const isKnockoutOnly = mode === TournamentMode.KNOCKOUT;
   const [pots, setPots] = useState<Team[][]>([[], [], [], []]);
@@ -124,6 +122,13 @@ const WorldCupDrawScene: React.FC<Props> = ({
     }, 1000);
   };
 
+  const handleSkip = () => {
+    // Collect all teams from pots and groups
+    const remainingFromPots = pots.flat();
+    const alreadyInGroups = Object.values(groups).flat();
+    onFinish([...alreadyInGroups, ...remainingFromPots]);
+  };
+
   useEffect(() => {
     const allDrawn = pots.every(p => p.length === 0);
     if (allDrawn && animPhase === 'idle' && hasStarted) {
@@ -139,59 +144,19 @@ const WorldCupDrawScene: React.FC<Props> = ({
     <div className="fixed inset-0 wc-bg z-[60] overflow-hidden flex flex-col">
       <div className="relative z-10 w-full max-w-7xl mx-auto px-0.5 md:px-6 py-0.5 md:py-6 flex flex-col h-full transform scale-[0.75] origin-top md:scale-100">
         
-        {/* Header */}
-        <header className="flex justify-between items-center mb-0.5 md:mb-6 shrink-0 px-1">
-          <div className="flex items-center gap-0.5 md:gap-4">
-            <span className="material-icons text-[#d4af37] animate-spin-slow text-[8px] md:text-4xl drop-shadow-[0_0_10px_rgba(212,175,55,0.5)]">public</span>
-            <span className="font-display text-[5px] md:text-3xl tracking-widest uppercase wc-gold-text font-black">DÜNYA KUBUKU 2026 RƏSMİ PÜŞKATMA</span>
-          </div>
-          <div className="flex items-center gap-0.5 md:gap-3">
-             <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-sm md:rounded-xl p-0.5 md:p-1">
-                <button 
-                  onClick={() => onZoomChange(Math.max(50, zoomLevel - 10))}
-                  className="w-4 h-4 md:w-8 md:h-8 flex items-center justify-center rounded hover:bg-white/10 text-white transition-all"
-                  title="Kiçilt"
-                >
-                  <span className="material-symbols-outlined text-[6px] md:text-sm">zoom_out</span>
-                </button>
-                <span className="text-[5px] md:text-[10px] font-black text-white w-4 md:w-10 text-center">{zoomLevel}%</span>
-                <button 
-                  onClick={() => onZoomChange(Math.min(150, zoomLevel + 10))}
-                  className="w-4 h-4 md:w-8 md:h-8 flex items-center justify-center rounded hover:bg-white/10 text-white transition-all"
-                  title="Böyüt"
-                >
-                  <span className="material-symbols-outlined text-[6px] md:text-sm">zoom_in</span>
-                </button>
-             </div>
-             <button onClick={onToggleMute} className="w-4 h-4 md:w-10 md:h-10 flex items-center justify-center rounded-sm md:rounded-xl bg-white/5 border border-white/10 text-[#d4af37] hover:bg-white/10 transition-all">
-               <span className="material-symbols-outlined text-[6px] md:text-base">{isMuted ? 'volume_off' : 'volume_up'}</span>
-             </button>
-             {onBackToMenu && (
-               <button onClick={onBackToMenu} className="px-1 py-0.5 md:px-5 md:py-2 bg-white/5 border border-[#d4af37]/30 rounded-sm md:rounded-xl text-[5px] md:text-[10px] font-black tracking-widest text-[#d4af37] hover:bg-[#d4af37]/10 transition-all uppercase whitespace-nowrap">MENYU</button>
-             )}
-          </div>
+        {/* Header - Simplified */}
+        <header className="flex justify-center items-center mb-0.5 md:mb-6 shrink-0 px-1 pt-4">
+          <button 
+            onClick={handleSkip}
+            className="px-8 py-3 md:px-12 md:py-4 bg-[#d4af37]/20 border-2 border-[#d4af37]/40 rounded-2xl text-[10px] md:text-xs font-black tracking-[0.3em] text-[#d4af37] hover:bg-[#d4af37]/30 hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(212,175,55,0.2)] transition-all uppercase"
+          >
+            PÜŞKATMAYI KEÇ
+          </button>
         </header>
 
         <div className="flex-1 flex flex-col gap-6 overflow-y-auto custom-scrollbar pb-10">
           
-          {/* Top Section: Pots */}
-          <div className="grid grid-cols-4 gap-0.5 md:gap-6 shrink-0 px-0.5">
-              {pots.map((pot, idx) => (
-                <div key={idx} className="wc-glass rounded-sm md:rounded-2xl overflow-hidden flex flex-col">
-                  <div className="bg-[#001640] py-0.5 md:py-2 px-0.5 md:px-4 border-b border-[#d4af37]/30">
-                    <h3 className="text-[3px] md:text-xs font-black text-[#d4af37] uppercase tracking-tighter md:tracking-[0.1em] text-center">SƏBƏT {idx + 1}</h3>
-                  </div>
-                  <div className="p-0.5 md:p-4 flex flex-wrap justify-center gap-0.5 md:gap-2 min-h-[10px] md:min-h-[60px] items-center">
-                    {pot.map((_, i) => (
-                      <div key={i} className="w-1 h-1 md:w-6 md:h-6 rounded-full wc-ball shadow-lg"></div>
-                    ))}
-                    {pot.length === 0 && <span className="text-[3px] md:text-xs text-white/40 font-bold italic">Bitti</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Center Section: The Action */}
+          {/* Center Section: The Action */}
             <div className="flex flex-col items-center justify-center py-0.5 md:py-12 shrink-0 min-h-[60px] md:min-h-[280px]">
               <div className="border border-blue-400/20 rounded-sm md:rounded-3xl p-0.5 md:p-20 flex items-center justify-center w-full max-w-3xl bg-black/10 backdrop-blur-sm">
                 {animPhase === 'reveal' && currentDrawn ? (

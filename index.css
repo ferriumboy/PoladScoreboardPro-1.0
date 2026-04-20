@@ -53,6 +53,11 @@
   --color-uclaccent: #00ff9d;
   --color-carpet: #0a26b1;
 
+  --color-nocturnal: #000814;
+  --color-neon-green: #00ff84;
+  --color-surface-glass: rgba(13, 21, 36, 0.6);
+  --color-surface-dark: #020c1b;
+
   --font-headline: "Manrope", sans-serif;
   --font-body: "Inter", sans-serif;
   --font-label: "Inter", sans-serif;
@@ -120,6 +125,62 @@
     background: radial-gradient(circle at center, rgba(177, 198, 252, 0.15) 0%, transparent 70%);
   }
 
+  .neon-text {
+    color: #00ff84;
+    text-shadow: 0 0 15px rgba(0, 255, 132, 0.6);
+  }
+
+  .elite-glass-card {
+    background: linear-gradient(145deg, rgba(13, 21, 36, 0.8), rgba(2, 12, 27, 0.95));
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(0, 255, 132, 0.1);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(0, 255, 132, 0.02);
+  }
+
+  .neon-border-active {
+    border: 1px solid rgba(0, 255, 132, 0.8);
+    box-shadow: 0 0 20px rgba(0, 255, 132, 0.3), inset 0 0 10px rgba(0, 255, 132, 0.05);
+  }
+
+  .button-3d-neon {
+    background: linear-gradient(to bottom, #00ff84, #00cc6a);
+    box-shadow: 0 10px 0 #008a47, 0 15px 30px rgba(0, 255, 132, 0.4);
+    transition: all 0.1s ease;
+  }
+
+  .button-3d-neon:active {
+    transform: translateY(4px);
+    box-shadow: 0 6px 0 #008a47, 0 10px 20px rgba(0, 255, 132, 0.3);
+  }
+
+  .pulse-btn {
+    animation: pulse-shadow 2s infinite;
+  }
+
+  @keyframes pulse-shadow {
+    0% { box-shadow: 0 10px 0 #008a47, 0 0 0 0 rgba(0, 255, 132, 0.7); }
+    70% { box-shadow: 0 10px 0 #008a47, 0 0 0 20px rgba(0, 255, 132, 0); }
+    100% { box-shadow: 0 10px 0 #008a47, 0 0 0 0 rgba(0, 255, 132, 0); }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; text-shadow: 0 0 20px rgba(0, 255, 132, 0.8), 0 0 40px rgba(0, 255, 132, 0.4); }
+    50% { opacity: 0.8; text-shadow: 0 0 10px rgba(0, 255, 132, 0.4), 0 0 20px rgba(0, 255, 132, 0.2); }
+  }
+
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+
   .glass-bowl {
     background: radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.02));
     box-shadow: 
@@ -147,5 +208,26 @@
   @keyframes unfold {
     0% { transform: scaleY(0.7) translateY(-20px); opacity: 0; }
     100% { transform: scaleY(1) translateY(0); opacity: 1; }
+  }
+
+  .particle {
+    position: absolute;
+    background: #b1c6fc;
+    border-radius: 50%;
+    opacity: 0.3;
+    pointer-events: none;
+  }
+  .stadium-glow {
+    background: radial-gradient(circle at center, #131c2a 0%, #0a1421 100%);
+  }
+  .neon-border {
+    box-shadow: 0 0 15px rgba(97, 255, 151, 0.2), inset 0 0 5px rgba(97, 255, 151, 0.1);
+    border: 1px solid rgba(97, 255, 151, 0.3);
+  }
+  .login-glass-card {
+    background: rgba(23, 32, 46, 0.6);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 }

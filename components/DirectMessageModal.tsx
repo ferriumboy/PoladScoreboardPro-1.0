@@ -29,8 +29,28 @@ const DirectMessageModal: React.FC<Props> = ({
   const [callStatus, setCallStatus] = useState<'ringing' | 'accepted' | 'rejected' | 'busy' | null>(null);
   const [callTimer, setCallTimer] = useState(0);
   const [callType, setCallType] = useState<'voice' | 'video'>('voice');
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const recordTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isRecording) {
+      recordTimerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } else {
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      setRecordingTime(0);
+    }
+    return () => {
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+    };
+  }, [isRecording]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -83,6 +103,38 @@ const DirectMessageModal: React.FC<Props> = ({
     }, 3000);
   };
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'file' | 'image' | 'video') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (type === 'image') {
+        onSendMessage(`[IMAGE]${content}`);
+      } else if (type === 'video') {
+        onSendMessage(`[VIDEO]${content}`);
+      } else {
+        onSendMessage(`[FILE]${file.name}`);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleVoiceStart = () => {
+    if (conversation.isBlocked) return;
+    setIsRecording(true);
+  };
+
+  const handleVoiceEnd = () => {
+    if (!isRecording) return;
+    setIsRecording(false);
+    if (recordingTime > 0) {
+      onSendMessage(`[VOICE]${recordingTime}s`);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[110] flex bg-[#0a1421] animate-in fade-in duration-300 font-['Inter']">
       {/* Sidebar - Conversations */}
@@ -105,12 +157,26 @@ const DirectMessageModal: React.FC<Props> = ({
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-baseline">
                   <p className="text-[#f5fff2] font-bold truncate">{conv.author}</p>
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); onDeleteConversation(conv.handle); }}
-                    className="opacity-0 group-hover:opacity-100 material-symbols-outlined text-xs text-red-400 hover:text-red-500"
-                  >
-                    delete
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-end">
+                      <div className="w-12 h-1 bg-white/10 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all duration-500 ${
+                            (conv.toxicityLevel || 0) > 70 ? 'bg-red-500' : 
+                            (conv.toxicityLevel || 0) > 40 ? 'bg-orange-500' : 'bg-[#00e476]'
+                          }`}
+                          style={{ width: `${conv.toxicityLevel || 0}%` }}
+                        ></div>
+                      </div>
+                      <span className="text-[8px] font-black uppercase tracking-tighter text-white/30 mt-0.5">Toxicity</span>
+                    </div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); onDeleteConversation(conv.handle); }}
+                      className="opacity-0 group-hover:opacity-100 material-symbols-outlined text-xs text-red-400 hover:text-red-500"
+                    >
+                      delete
+                    </button>
+                  </div>
                 </div>
                 <p className="text-[#6386be] text-sm truncate">
                   {conv.messages[conv.messages.length - 1]?.text || "Söhbətə başla..."}
@@ -136,7 +202,22 @@ const DirectMessageModal: React.FC<Props> = ({
             </div>
             <div className="flex flex-col">
               <h2 className="text-[#f5fff2] text-lg font-bold leading-tight">{conversation.author}</h2>
-              <span className="text-[#6386be] text-xs font-medium uppercase tracking-wide">Onlayn</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[#00e476] text-[10px] font-black uppercase tracking-widest">Onlayn</span>
+                <span className="text-white/20 text-[10px]">•</span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                    <div 
+                      className={`h-full transition-all duration-500 ${
+                        (conversation.toxicityLevel || 0) > 70 ? 'bg-red-500' : 
+                        (conversation.toxicityLevel || 0) > 40 ? 'bg-orange-500' : 'bg-[#00e476]'
+                      }`}
+                      style={{ width: `${conversation.toxicityLevel || 0}%` }}
+                    ></div>
+                  </div>
+                  <span className="text-[9px] font-black uppercase tracking-tighter text-white/40">Toxicity: {conversation.toxicityLevel || 0}%</span>
+                </div>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-6 text-[#6386be]">
@@ -173,14 +254,28 @@ const DirectMessageModal: React.FC<Props> = ({
                     ? 'bg-gradient-to-tr from-[#b1c6fc] to-[#6386be] text-[#001944] rounded-br-none' 
                     : 'bg-[#212a39] text-[#dae3f6] rounded-bl-none'
                 }`}>
-                  <p className="text-sm leading-relaxed">{msg.text}</p>
+                  {msg.text.startsWith('[IMAGE]') ? (
+                    <img src={msg.text.replace('[IMAGE]', '')} className="max-w-full rounded-lg" alt="Sent image" referrerPolicy="no-referrer" />
+                  ) : msg.text.startsWith('[VIDEO]') ? (
+                    <video src={msg.text.replace('[VIDEO]', '')} controls className="max-w-full rounded-lg" />
+                  ) : msg.text.startsWith('[VOICE]') ? (
+                    <div className="flex items-center gap-3">
+                      <span className="material-symbols-outlined">mic</span>
+                      <div className="flex-1 h-1 bg-white/20 rounded-full overflow-hidden">
+                        <div className="h-full bg-white w-1/2 animate-pulse"></div>
+                      </div>
+                      <span className="text-xs font-bold">{msg.text.replace('[VOICE]', '')}</span>
+                    </div>
+                  ) : (
+                    <p className="text-sm leading-relaxed">{msg.text}</p>
+                  )}
                   <span className={`text-[10px] mt-1 block text-right ${msg.senderId === 'user' ? 'text-[#001944]/70' : 'text-[#8f909a]'}`}>
                     {msg.timestamp}
                   </span>
                 </div>
                 <button 
                   onClick={() => onDeleteMessage(msg.id)}
-                  className={`absolute top-0 ${msg.senderId === 'user' ? '-left-8' : '-right-8'} opacity-0 group-hover:opacity-100 material-symbols-outlined text-xs text-red-400 hover:text-red-500 transition-all`}
+                  className={`absolute top-0 ${msg.senderId === 'user' ? '-left-8' : '-right-8'} opacity-50 group-hover:opacity-100 material-symbols-outlined text-xs text-red-400 hover:text-red-500 transition-all`}
                 >
                   delete
                 </button>
@@ -201,23 +296,52 @@ const DirectMessageModal: React.FC<Props> = ({
         {/* Input Area */}
         <footer className="p-6 relative z-10">
           <div className="max-w-4xl mx-auto flex items-center gap-3 bg-[#212a39]/60 backdrop-blur-2xl rounded-full p-2 border border-white/5 shadow-2xl">
-            <button className="w-10 h-10 flex items-center justify-center text-[#8f909a] hover:text-[#00e476] transition-colors">
+            <input type="file" ref={fileInputRef} className="hidden" onChange={(e) => handleFileUpload(e, 'file')} />
+            <input type="file" ref={imageInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileUpload(e, 'image')} />
+            <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={(e) => handleFileUpload(e, 'video')} />
+            
+            <button onClick={() => onSendMessage('[Stiker göndərildi]')} className="w-10 h-10 flex items-center justify-center text-[#8f909a] hover:text-[#00e476] transition-colors" title="Stiker göndər">
               <span className="material-symbols-outlined">sentiment_satisfied</span>
             </button>
-            <button className="w-10 h-10 flex items-center justify-center text-[#8f909a] hover:text-[#00e476] transition-colors">
+            <button onClick={() => fileInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center text-[#8f909a] hover:text-[#00e476] transition-colors" title="Fayl göndər">
               <span className="material-symbols-outlined">attach_file</span>
             </button>
-            <input 
-              type="text" 
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              disabled={conversation.isBlocked}
-              placeholder="Mesaj yazın..."
-              className="flex-1 bg-transparent border-none focus:ring-0 text-[#dae3f6] text-sm placeholder-[#8f909a] px-2"
-            />
+            <button onClick={() => imageInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center text-[#8f909a] hover:text-[#00e476] transition-colors" title="Şəkil göndər">
+              <span className="material-symbols-outlined">image</span>
+            </button>
+            <button onClick={() => videoInputRef.current?.click()} className="w-10 h-10 flex items-center justify-center text-[#8f909a] hover:text-[#00e476] transition-colors" title="Video göndər">
+              <span className="material-symbols-outlined">videocam</span>
+            </button>
+            
+            <div className="flex-1 flex items-center bg-black/20 rounded-full px-4 py-1">
+              {isRecording ? (
+                <div className="flex-1 flex items-center gap-3">
+                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                  <span className="text-xs font-bold text-red-400">Yazılır... {formatTime(recordingTime)}</span>
+                </div>
+              ) : (
+                <input 
+                  type="text" 
+                  value={inputText}
+                  onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  disabled={conversation.isBlocked}
+                  placeholder="Mesaj yazın..."
+                  className="flex-1 bg-transparent border-none focus:ring-0 text-[#dae3f6] text-sm placeholder-[#8f909a] px-0"
+                />
+              )}
+            </div>
+
             <div className="flex items-center gap-1">
-              <button className="w-10 h-10 flex items-center justify-center text-[#8f909a] hover:text-[#00e476] transition-colors">
+              <button 
+                onMouseDown={handleVoiceStart}
+                onMouseUp={handleVoiceEnd}
+                onMouseLeave={handleVoiceEnd}
+                onTouchStart={handleVoiceStart}
+                onTouchEnd={handleVoiceEnd}
+                className={`w-10 h-10 flex items-center justify-center transition-colors ${isRecording ? 'text-red-500 scale-125' : 'text-[#8f909a] hover:text-[#00e476]'}`} 
+                title="Səs mesajı göndər (Sıxıb saxla)"
+              >
                 <span className="material-symbols-outlined">mic</span>
               </button>
               <button 

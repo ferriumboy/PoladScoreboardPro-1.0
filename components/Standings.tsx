@@ -7,45 +7,49 @@ interface Props {
   groupedStandings?: Record<string, Standing[]>;
   onSave?: (name: string) => void;
   isFinished?: boolean;
+  isViewOnly?: boolean;
 }
 
 const DEFAULT_LOGO = "https://cdn-icons-png.flaticon.com/512/16/16480.png";
 
-const Standings: React.FC<Props> = ({ standings, groupedStandings, onSave, isFinished }) => {
+const Standings: React.FC<Props> = ({ standings, groupedStandings, onSave, isFinished, isViewOnly }) => {
   const [saveName, setSaveName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   const renderTable = (data: Standing[], title?: string) => (
     <div key={title || 'main'} className="mb-8">
       {title && (
-        <h3 className="text-white font-black text-lg md:text-xl uppercase italic tracking-widest mb-4">{title}</h3>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-1.5 h-6 md:h-8 bg-neon rounded-full shadow-neon"></div>
+          <h3 className="text-white font-black text-lg md:text-2xl uppercase italic tracking-widest">{title}</h3>
+        </div>
       )}
       <div className="overflow-x-auto custom-scrollbar mb-4 md:mb-10 -mx-2 md:mx-0 px-2 md:px-0">
         <table className="w-full text-left border-collapse min-w-[400px] md:min-w-[700px]">
           <thead>
-            <tr className="border-b border-white/5 text-[6px] md:text-[10px] uppercase font-black tracking-widest text-white/40">
-              <th className="pb-2 md:pb-6 pl-1 md:pl-4 w-6 md:w-12 text-center">#</th>
-              <th className="pb-2 md:pb-6 pl-1 md:pl-4">KLUB</th>
-              <th className="pb-2 md:pb-6 text-center text-white text-[8px] md:text-xs font-black">PTS</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">O</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">Q</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">H</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">M</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">VQ</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">BQ</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">TF</th>
-              <th className="pb-2 md:pb-6 text-center text-cyan-400">FORMA</th>
+            <tr className="border-b border-white/10 text-[8px] md:text-[12px] uppercase font-black tracking-[0.2em] text-white/40">
+              <th className="pb-4 md:pb-8 pl-2 md:pl-6 w-8 md:w-16 text-center">#</th>
+              <th className="pb-4 md:pb-8 pl-2 md:pl-6">KLUB</th>
+              <th className="pb-4 md:pb-8 text-center text-white font-black">PTS</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">O</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">Q</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">H</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">M</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">VQ</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">BQ</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">TF</th>
+              <th className="pb-4 md:pb-8 text-center text-cyan-400">FORMA</th>
             </tr>
           </thead>
           <tbody>
             {(data || []).map((s, idx) => (
               <tr key={s.teamId} className="border-b border-white/5 hover:bg-white/5 transition-all group">
-                <td className="py-1.5 md:py-6 pl-1 md:pl-4 text-center">
-                  <span className="text-[8px] md:text-xs font-bold text-white/20 group-hover:text-white transition-colors">{idx + 1}</span>
+                <td className="py-3 md:py-8 pl-2 md:pl-6 text-center">
+                  <span className="text-[10px] md:text-sm font-black text-white/30 group-hover:text-neon transition-colors">{idx + 1}</span>
                 </td>
-                <td className="py-1.5 md:py-6 pl-1 md:pl-4">
-                  <div className="flex items-center gap-1.5 md:gap-5">
-                    <div className="w-5 h-5 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center p-0.5 shadow-lg group-hover:scale-110 transition-transform shrink-0">
+                <td className="py-3 md:py-8 pl-2 md:pl-6">
+                  <div className="flex items-center gap-3 md:gap-6">
+                    <div className="w-8 h-8 md:w-16 md:h-16 rounded-full bg-white flex items-center justify-center p-1 md:p-2 shadow-2xl group-hover:scale-110 transition-transform shrink-0">
                       <img 
                         src={s.teamLogo || DEFAULT_LOGO} 
                         onError={(e) => { 
@@ -57,28 +61,28 @@ const Standings: React.FC<Props> = ({ standings, groupedStandings, onSave, isFin
                         alt="" 
                       />
                     </div>
-                    <span className="text-[8px] md:text-base font-black text-white tracking-tight uppercase italic whitespace-nowrap">{s.teamName}</span>
+                    <span className="text-xs md:text-xl font-black text-white tracking-tight uppercase italic whitespace-nowrap group-hover:text-neon transition-colors">{s.teamName}</span>
                   </div>
                 </td>
-                <td className="py-1.5 md:py-6 text-center">
-                  <span className="text-sm md:text-3xl font-black text-white">{s.pts}</span>
+                <td className="py-3 md:py-8 text-center">
+                  <span className="text-lg md:text-4xl font-black text-white group-hover:scale-110 transition-transform inline-block">{s.pts}</span>
                 </td>
-                <td className="py-1.5 md:py-6 text-center text-[8px] md:text-sm font-bold text-cyan-400/80">{s.played}</td>
-                <td className="py-1.5 md:py-6 text-center text-[8px] md:text-sm font-bold text-cyan-400/80">{s.won}</td>
-                <td className="py-1.5 md:py-6 text-center text-[8px] md:text-sm font-bold text-cyan-400/80">{s.drawn}</td>
-                <td className="py-1.5 md:py-6 text-center text-[8px] md:text-sm font-bold text-cyan-400/80">{s.lost}</td>
-                <td className="py-1.5 md:py-6 text-center text-[8px] md:text-sm font-bold text-cyan-400/80">{s.gf}</td>
-                <td className="py-1.5 md:py-6 text-center text-[8px] md:text-sm font-bold text-cyan-400/80">{s.ga}</td>
-                <td className="py-1.5 md:py-6 text-center text-[8px] md:text-sm font-bold text-cyan-400/80">
+                <td className="py-3 md:py-8 text-center text-[10px] md:text-lg font-bold text-cyan-400/80">{s.played}</td>
+                <td className="py-3 md:py-8 text-center text-[10px] md:text-lg font-bold text-cyan-400/80">{s.won}</td>
+                <td className="py-3 md:py-8 text-center text-[10px] md:text-lg font-bold text-cyan-400/80">{s.drawn}</td>
+                <td className="py-3 md:py-8 text-center text-[10px] md:text-lg font-bold text-cyan-400/80">{s.lost}</td>
+                <td className="py-3 md:py-8 text-center text-[10px] md:text-lg font-bold text-cyan-400/80">{s.gf}</td>
+                <td className="py-3 md:py-8 text-center text-[10px] md:text-lg font-bold text-cyan-400/80">{s.ga}</td>
+                <td className="py-3 md:py-8 text-center text-[10px] md:text-lg font-bold text-cyan-400/80">
                    {s.gd > 0 ? `+${s.gd}` : s.gd}
                 </td>
-                <td className="py-1.5 md:py-6">
-                   <div className="flex items-center justify-center gap-0.5 md:gap-1.5">
+                <td className="py-3 md:py-8">
+                   <div className="flex items-center justify-center gap-1 md:gap-2">
                       {(s.form || []).map((res, i) => (
-                        <div key={`form-${s.teamId}-${i}`} className={`w-3 h-3 md:w-6 md:h-6 rounded-full flex items-center justify-center text-[5px] md:text-[9px] font-black ${
-                          res === 'Q' ? 'bg-emerald-500 text-black shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 
-                          res === 'H' ? 'bg-yellow-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.3)]' : 
-                          'bg-rose-500 text-white shadow-[0_0_10px_rgba(244,63,94,0.3)]'
+                        <div key={`form-${s.teamId}-${i}`} className={`w-4 h-4 md:w-8 md:h-8 rounded-full flex items-center justify-center text-[6px] md:text-[11px] font-black ${
+                          res === 'Q' ? 'bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.4)]' : 
+                          res === 'H' ? 'bg-yellow-500 text-black shadow-[0_0_15px_rgba(234,179,8,0.4)]' : 
+                          'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.4)]'
                         }`}>
                           {res}
                         </div>
@@ -95,13 +99,13 @@ const Standings: React.FC<Props> = ({ standings, groupedStandings, onSave, isFin
   );
 
   return (
-    <div className="premium-glass-card rounded-3xl md:rounded-[2.5rem] p-4 md:p-8 shadow-2xl relative overflow-hidden bg-[#020d2d] border border-white/10">
+    <div className="premium-glass-card rounded-3xl md:rounded-[2.5rem] p-4 md:p-8 shadow-2xl relative overflow-hidden bg-[#050e1c] border border-white/10">
       <div className="flex items-center justify-between mb-6 md:mb-10">
-        <div className="flex items-center gap-2 md:gap-3">
-           <div className="w-2 h-2 md:w-2.5 md:h-2.5 rounded-full bg-neon animate-pulse"></div>
-           <span className="text-[9px] md:text-[11px] font-black text-neon uppercase tracking-[0.2em] italic">CANLI CƏDVƏL</span>
+        <div className="flex items-center gap-3">
+          <div className="w-1.5 h-6 md:h-8 bg-neon rounded-full shadow-neon"></div>
+          <h2 className="font-display text-xl md:text-3xl font-black uppercase tracking-widest text-white italic">CƏDVƏL</h2>
         </div>
-        <div className="text-[7px] md:text-[9px] font-bold text-white/20 uppercase tracking-widest">
+        <div className="text-[7px] md:text-[10px] font-bold text-white/20 uppercase tracking-[0.3em]">
            SON YENİLƏNMƏ: İNDİ
         </div>
       </div>
@@ -112,8 +116,13 @@ const Standings: React.FC<Props> = ({ standings, groupedStandings, onSave, isFin
         renderTable(standings || [])
       )}
 
-      {isFinished && !isSaving && (
-        null
+      {isFinished && !isSaving && !isViewOnly && (
+        <button 
+          onClick={() => setIsSaving(true)}
+          className="w-full mt-6 md:mt-10 py-4 md:py-6 rounded-2xl md:rounded-[2rem] bg-neon text-[#010412] font-black text-xs md:text-sm uppercase tracking-widest shadow-[0_0_30px_rgba(57,255,20,0.3)] hover:shadow-[0_0_50px_rgba(57,255,20,0.5)] transform hover:scale-[1.02] active:scale-95 transition-all duration-300"
+        >
+          TURNİRİ YADDA SAXLA
+        </button>
       )}
 
       {isSaving && (

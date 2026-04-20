@@ -8,11 +8,13 @@ interface Props {
   onOpenStats: () => void;
   onOpenSocial: () => void;
   onOpenMenu: () => void;
+  isMuted: boolean;
+  onToggleMute: () => void;
 }
 
 const DEFAULT_LOGO = "https://cdn-icons-png.flaticon.com/512/16/16480.png";
 
-const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, onOpenSocial, onOpenMenu }) => {
+const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, onOpenSocial, onOpenMenu, isMuted, onToggleMute }) => {
   const getTeam = (id: string) => {
     if (id === 'tbd' || id.startsWith('G_') || id.startsWith('L_') || id.startsWith('POW_')) return { name: 'Gözlənilir', logo: DEFAULT_LOGO };
     if (id === 'bye') return { name: 'BYE', logo: DEFAULT_LOGO };
@@ -104,8 +106,6 @@ const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, on
     };
   });
 
-  const [bracketZoom, setBracketZoom] = React.useState(100);
-
   return (
     <div className="flex-1 min-h-screen bg-[#020617] text-[#dae3f6] font-body antialiased relative overflow-x-hidden" style={{ backgroundImage: 'radial-gradient(circle at 50% 30%, #001B48 0%, #020617 100%)' }}>
       <style>{`
@@ -177,52 +177,69 @@ const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, on
       <div className="fixed inset-0 bg-[radial-gradient(circle_at_50%_0%,_rgba(177,198,252,0.12),_transparent_60%)] pointer-events-none"></div>
       
       {/* Header & Navigation */}
-      <header className="fixed top-0 left-0 w-full z-50 px-4 md:px-8 py-4 md:py-6 flex justify-between items-start bg-black/20 backdrop-blur-md">
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-2 h-2 rounded-full bg-[#00e476] shadow-[0_0_10px_#61ff97]"></span>
-            <span className="font-label text-[10px] uppercase tracking-[0.4em] text-[#61ff97]">UEFA ELİT</span>
+      <header className="fixed top-0 left-0 w-full z-50 px-4 md:px-8 py-4 md:py-6 flex items-center justify-between bg-black/40 backdrop-blur-xl border-b border-white/5">
+        <div className="flex items-center gap-6">
+          {/* Logo */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.2)]">
+              <span className="material-symbols-outlined text-[#020617] font-bold text-2xl md:text-3xl">sports_soccer</span>
+            </div>
+            <div className="font-headline text-xl md:text-2xl font-black tracking-tighter italic text-white">
+              FUTBOL <span className="text-[#00ff88] drop-shadow-[0_0_10px_#00ff88]">PRO</span>
+            </div>
           </div>
-          <h1 className="font-headline text-lg md:text-2xl font-extrabold tracking-tight text-[#dae3f6] flex items-center gap-2 md:gap-3">
-            CHAMPIONS LEAGUE 
-            <span className="font-body font-light text-[#dae3f6]/40">/</span>
-            <span className="text-[#b1c6fc] font-medium text-sm md:text-lg">PLEY-OFF</span>
-          </h1>
+
+          {/* Room PIN Box */}
+          {state.roomPin && (
+            <div className="hidden sm:flex flex-col items-center bg-black/40 border border-white/10 rounded-xl px-4 py-1.5 shadow-inner">
+              <span className="text-[8px] font-black text-white/40 uppercase tracking-[0.2em]">ROOM PIN</span>
+              <span className="text-xl font-black text-[#00ff88] tracking-widest drop-shadow-[0_0_8px_#00ff88]">{state.roomPin}</span>
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-3">
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-white/5 rounded-full p-1 border border-white/10 mr-2">
+        <div className="flex items-center gap-2 md:gap-4">
+          {/* Icons Group */}
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl p-1.5">
             <button 
-              onClick={() => setBracketZoom(Math.max(40, bracketZoom - 10))}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white transition-all"
+              onClick={onToggleMute} 
+              className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${isMuted ? 'bg-rose-500/20 text-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'text-white/40 hover:text-white'}`}
             >
-              <span className="material-symbols-outlined text-sm">remove</span>
+              <span className="material-symbols-outlined text-xl">{isMuted ? 'volume_off' : 'volume_up'}</span>
             </button>
-            <span className="text-[10px] font-black text-white/60 w-8 text-center">{bracketZoom}%</span>
             <button 
-              onClick={() => setBracketZoom(Math.min(120, bracketZoom + 10))}
-              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10 text-white transition-all"
+              onClick={onOpenStats}
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20 transition-all"
             >
-              <span className="material-symbols-outlined text-sm">add</span>
+              <span className="material-symbols-outlined text-xl">bar_chart</span>
+            </button>
+            <button onClick={onOpenSocial} className="w-10 h-10 rounded-xl flex items-center justify-center text-pink-500 bg-pink-500/10 hover:bg-pink-500/20 transition-all">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+              </svg>
             </button>
           </div>
 
-          <div className="hidden md:flex items-center nav-icon-panel rounded-full p-1 px-5 gap-5">
-            <button onClick={onOpenStats} className="text-[#dae3f6]/60 hover:text-[#b1c6fc] transition-colors py-1.5 flex items-center"><span className="material-symbols-outlined text-[22px]">leaderboard</span></button>
-            <button onClick={onOpenSocial} className="text-[#dae3f6]/60 hover:text-[#b1c6fc] transition-colors py-1.5 flex items-center">
-              <svg className="w-[22px] h-[22px] fill-current" viewBox="0 0 24 24">
-                <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-              </svg>
+          {/* Buttons Group */}
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => {
+                const name = prompt("Turnirin adını daxil edin:");
+                if (name) window.dispatchEvent(new CustomEvent('save-tournament', { detail: { name } }));
+              }}
+              className="hidden lg:flex items-center gap-2 px-6 py-3 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-xl border border-blue-500/20 transition-all shadow-lg"
+            >
+              <span className="material-symbols-outlined text-sm">save</span>
+              <span className="text-[10px] font-black uppercase tracking-widest">YADDA SAXLA</span>
             </button>
-            <button onClick={onOpenMenu} className="text-[#dae3f6]/60 hover:text-[#b1c6fc] transition-colors py-1.5 flex items-center"><span className="material-symbols-outlined text-[22px]">menu</span></button>
-            <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
-            <button onClick={onOpenMenu} className="text-[#dae3f6]/60 hover:text-[#b1c6fc] transition-colors py-1.5 flex items-center"><span className="material-symbols-outlined text-[22px]">settings</span></button>
-          </div>
-          <button onClick={onOpenMenu} className="md:hidden w-10 h-10 rounded-full border border-white/10 overflow-hidden bg-[#1e293b] flex items-center justify-center cursor-pointer hover:border-[#b1c6fc]/40 transition-colors">
-            <span className="material-symbols-outlined text-[#dae3f6]/60">menu</span>
-          </button>
-          <div onClick={onOpenMenu} className="hidden md:flex w-10 h-10 rounded-full border border-white/10 overflow-hidden bg-[#1e293b] items-center justify-center cursor-pointer hover:border-[#b1c6fc]/40 transition-colors">
-            <span className="material-symbols-outlined text-[#dae3f6]/60">person</span>
+            <button 
+              onClick={onOpenMenu}
+              className="flex items-center gap-2 px-4 md:px-6 py-3 bg-white/5 hover:bg-white/10 text-white/60 hover:text-white rounded-xl border border-white/10 transition-all"
+            >
+              <span className="material-symbols-outlined text-sm">menu</span>
+              <span className="text-[10px] font-black uppercase tracking-widest hidden sm:inline">MENYU</span>
+            </button>
           </div>
         </div>
       </header>
@@ -253,6 +270,7 @@ const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, on
                         <th className="pb-6 text-center text-[#b1c6fc]">VQ</th>
                         <th className="pb-6 text-center text-[#b1c6fc]">BQ</th>
                         <th className="pb-6 text-center text-[#b1c6fc]">TF</th>
+                        <th className="pb-6 text-center text-[#b1c6fc]">FORMA</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -279,6 +297,24 @@ const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, on
                           <td className="py-5 text-center text-xs md:text-base font-bold text-[#b1c6fc]/70">{s.gf}</td>
                           <td className="py-5 text-center text-xs md:text-base font-bold text-[#b1c6fc]/70">{s.ga}</td>
                           <td className="py-5 text-center text-xs md:text-base font-bold text-[#b1c6fc]/70">{s.gd > 0 ? `+${s.gd}` : s.gd}</td>
+                          <td className="py-5 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {s.form.map((res, i) => (
+                                <div 
+                                  key={i} 
+                                  className={`w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center text-[8px] md:text-[10px] font-black shadow-lg border border-white/10 relative overflow-hidden ${
+                                    res === 'Q' ? 'bg-[#00e476] text-[#00210c] shadow-[#00e476]/20' : 
+                                    res === 'M' ? 'bg-[#ff4d4d] text-white shadow-[#ff4d4d]/20' : 
+                                    'bg-[#ffd700] text-black shadow-[#ffd700]/20'
+                                  }`}
+                                >
+                                  <div className="absolute inset-0 bg-gradient-to-br from-white/30 to-transparent pointer-events-none"></div>
+                                  <div className="absolute inset-0 shadow-[inset_0_2px_4px_rgba(255,255,255,0.3),inset_0_-2px_4px_rgba(0,0,0,0.3)] rounded-full pointer-events-none"></div>
+                                  {res}
+                                </div>
+                              ))}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -297,7 +333,7 @@ const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, on
             </div>
 
             <div className="bracket-container overflow-x-auto custom-scrollbar pb-12">
-              <div className="flex min-w-max gap-4 md:gap-12 lg:gap-24 items-center justify-start md:justify-center px-4" style={{ transform: `scale(${bracketZoom / 100})`, transformOrigin: 'left top' }}>
+              <div className="flex min-w-max gap-4 md:gap-12 lg:gap-24 items-center justify-start md:justify-center px-4">
             {columns.map((col) => (
               <div key={col.colIndex} className={`flex flex-col justify-around gap-8 md:gap-12 lg:gap-24 ${col.isCenter ? 'w-[280px] md:w-[400px] items-center' : col.isLeftSide ? 'w-[200px] md:w-[300px] items-end' : 'w-[200px] md:w-[300px] items-start'}`}>
                 {!col.isCenter && (
@@ -458,59 +494,80 @@ const UclKnockoutView: React.FC<Props> = ({ state, onMatchClick, onOpenStats, on
           )}
 
           {/* Match Calendar Section */}
-          {allCalendarMatches.length > 0 && (
-            <section className="mt-20 md:mt-40 w-full animate-in slide-in-from-bottom-10 duration-700 delay-300">
-              <div className="flex items-center justify-between mb-8 md:mb-12">
-                <div className="flex items-center gap-4">
-                  <div className="w-1.5 h-8 bg-[#b1c6fc] rounded-full shadow-[0_0_20px_rgba(177,198,252,0.6)]"></div>
-                  <h2 className="font-headline text-2xl md:text-4xl font-black text-white uppercase italic tracking-tighter">OYUNLAR TƏQVİMİ</h2>
-                </div>
+          <section className="mt-20 md:mt-40 w-full animate-in slide-in-from-bottom-10 duration-700 delay-300">
+            <div className="flex items-center justify-between mb-8 md:mb-12">
+              <div className="flex items-center gap-4">
+                <div className="w-1.5 h-8 bg-[#b1c6fc] rounded-full shadow-[0_0_20px_rgba(177,198,252,0.6)]"></div>
+                <h2 className="font-headline text-2xl md:text-4xl font-black text-white uppercase italic tracking-tighter">OYUNLAR TƏQVİMİ</h2>
               </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {allCalendarMatches.map((match, idx) => {
-                const home = getTeam(match.homeTeamId);
-                const away = getTeam(match.awayTeamId);
-                const { dateStr, timeStr } = getMatchDateTime(match.id, idx, match.isFinished);
-
-                return (
-                  <div key={match.id} onClick={() => onMatchClick(match.id)} className="glass-card p-4 md:p-6 rounded-2xl flex items-center justify-between group cursor-pointer hover:bg-white/[0.05] transition-all border border-white/5 relative overflow-hidden">
-                    {match.isFinished && (
-                      <div className="absolute top-0 right-0 bg-white/5 px-2 py-0.5 rounded-bl-lg">
-                        <span className="text-[6px] font-black text-white/20 uppercase">KEÇMİŞ</span>
-                      </div>
-                    )}
-                    <div className="flex flex-col items-center gap-2 md:gap-4 w-1/3">
-                      <div className="w-10 h-10 md:w-14 md:h-14 rounded-full bg-white/5 p-2 border border-white/10 shadow-lg group-hover:border-[#b1c6fc]/30 transition-colors">
-                        <img alt={home.name} className="w-full h-full object-contain" src={home.logo}/>
-                      </div>
-                      <span className="font-label text-[8px] md:text-[10px] font-bold uppercase tracking-widest text-[#dae3f6]/60 text-center truncate w-full">{home.name}</span>
-                    </div>
-                    <div className="flex flex-col items-center w-1/3">
-                      {match.isFinished ? (
-                        <span className="font-headline text-lg md:text-2xl font-black text-[#dae3f6]">{match.homeScore} : {match.awayScore}</span>
-                      ) : (
-                        <span className="font-headline text-[10px] md:text-sm font-black text-[#b1c6fc] tracking-widest">{timeStr}</span>
-                      )}
-                      <span className="font-label text-[7px] md:text-[9px] text-[#c5c6d0]/40 uppercase mt-1 md:mt-2 font-bold tracking-widest">{dateStr}</span>
-                    </div>
-                    <div className="flex flex-col items-center gap-2 md:gap-4 w-1/3">
-                      <div className="w-10 h-10 md:w-14 md:h-14 rounded-full bg-white/5 p-2 border border-white/10 shadow-lg group-hover:border-[#b1c6fc]/30 transition-colors">
-                        <img alt={away.name} className="w-full h-full object-contain" src={away.logo}/>
-                      </div>
-                      <span className="font-label text-[8px] md:text-[10px] font-bold uppercase tracking-widest text-[#dae3f6]/60 text-center truncate w-full">{away.name}</span>
-                    </div>
-                  </div>
-                );
-              })}
             </div>
-          </section>
-        )}
-        </div>
-      </main>
+            
+            <div className="space-y-12">
+              {(Array.from(new Set(state.matches.map(m => m.round))) as number[]).sort((a, b) => a - b).map(roundNum => {
+                const roundRomanNumerals: Record<number, string> = {
+                  1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI', 7: 'VII', 8: 'VIII'
+                };
+                return (
+                  <div key={`round-${roundNum}`} className="space-y-6">
+                    <div className="flex items-center gap-4">
+                      <span className="text-[#b1c6fc] font-black text-xs md:text-sm uppercase tracking-[0.4em]">
+                        {state.matches.find(m => m.round === roundNum)?.stageName === 'Liqa Mərhələsi' 
+                          ? `${roundRomanNumerals[roundNum] || roundNum}. TUR` 
+                          : (state.matches.find(m => m.round === roundNum)?.stageName || `${roundNum}. TUR`)}
+                      </span>
+                      <div className="h-px bg-white/5 flex-grow"></div>
+                    </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    {state.matches.filter(m => m.round === roundNum).map((match, idx) => {
+                      const home = getTeam(match.homeTeamId);
+                      const away = getTeam(match.awayTeamId);
+                      const { dateStr, timeStr } = getMatchDateTime(match.id, idx, match.isFinished);
+
+                      return (
+                        <div key={match.id} onClick={() => onMatchClick(match.id)} className="glass-card p-4 md:p-6 rounded-2xl flex items-center justify-between group cursor-pointer hover:bg-white/[0.05] transition-all border border-white/5 relative overflow-hidden">
+                          {match.isFinished && (
+                            <div className="absolute top-0 right-0 bg-white/5 px-2 py-0.5 rounded-bl-lg">
+                              <span className="text-[6px] font-black text-white/20 uppercase">BİTİB</span>
+                            </div>
+                          )}
+                          <div className="flex flex-col items-center gap-2 md:gap-4 w-1/3">
+                            <div className="w-10 h-10 md:w-14 md:h-14 rounded-full bg-white/5 p-2 border border-white/10 shadow-lg group-hover:border-[#b1c6fc]/30 transition-colors">
+                              <img alt={home.name} className="w-full h-full object-contain" src={home.logo}/>
+                            </div>
+                            <span className="font-label text-[8px] md:text-[10px] font-bold uppercase tracking-widest text-[#dae3f6]/60 text-center truncate w-full">{home.name}</span>
+                          </div>
+                          <div className="flex flex-col items-center w-1/3">
+                            {match.homeScore !== null ? (
+                              <span className="font-headline text-lg md:text-2xl font-black text-[#dae3f6]">{match.homeScore} : {match.awayScore}</span>
+                            ) : (
+                              <span className="font-headline text-[10px] md:text-sm font-black text-[#b1c6fc] tracking-widest">{timeStr}</span>
+                            )}
+                            <span className="font-label text-[7px] md:text-[9px] text-[#c5c6d0]/40 uppercase mt-1 md:mt-2 font-bold tracking-widest">{dateStr}</span>
+                          </div>
+                          <div className="flex flex-col items-center gap-2 md:gap-4 w-1/3">
+                            <div className="w-10 h-10 md:w-14 md:h-14 rounded-full bg-white/5 p-2 border border-white/10 shadow-lg group-hover:border-[#b1c6fc]/30 transition-colors">
+                              <img alt={away.name} className="w-full h-full object-contain" src={away.logo}/>
+                            </div>
+                            <span className="font-label text-[8px] md:text-[10px] font-bold uppercase tracking-widest text-[#dae3f6]/60 text-center truncate w-full">{away.name}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+    </main>
       
       {/* Bottom aesthetic gradient */}
       <div className="fixed bottom-0 left-0 w-full h-32 bg-gradient-to-t from-[#020617] to-transparent pointer-events-none z-10"></div>
+      
+      <div className="fixed bottom-4 left-0 w-full text-center z-50 pointer-events-none">
+        <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">Polad tərəfindən hazırlandı</p>
+      </div>
     </div>
   );
 };

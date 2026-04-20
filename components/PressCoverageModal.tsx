@@ -8,8 +8,6 @@ interface PressCoverageModalProps {
   onClose: () => void;
   latestMatch: Match | null;
   teams: Team[];
-  zoomLevel?: number;
-  onZoomChange?: (level: number) => void;
 }
 
 interface NewsItem {
@@ -24,7 +22,7 @@ interface NewsItem {
   style: 'bbc' | 'marca' | 'lequipe' | 'romano';
 }
 
-const PressCoverageModal: React.FC<PressCoverageModalProps> = ({ onClose, latestMatch, teams, zoomLevel = 100, onZoomChange }) => {
+const PressCoverageModal: React.FC<PressCoverageModalProps> = ({ onClose, latestMatch, teams }) => {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [selectedNews, setSelectedNews] = useState<NewsItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -159,25 +157,6 @@ const PressCoverageModal: React.FC<PressCoverageModalProps> = ({ onClose, latest
             </h2>
           </div>
           <div className="flex items-center gap-2">
-            {onZoomChange && (
-              <div className="hidden md:flex items-center gap-1 bg-black/40 rounded-xl p-1 border border-white/10 mr-2">
-                <button 
-                  onClick={() => onZoomChange(Math.max(50, zoomLevel - 10))}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                  title="Kiçilt"
-                >
-                  <span className="material-symbols-outlined text-sm">zoom_out</span>
-                </button>
-                <span className="text-xs font-black text-white w-10 text-center">{zoomLevel}%</span>
-                <button 
-                  onClick={() => onZoomChange(Math.min(150, zoomLevel + 10))}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                  title="Böyüt"
-                >
-                  <span className="material-symbols-outlined text-sm">zoom_in</span>
-                </button>
-              </div>
-            )}
             <button 
               onClick={onClose}
               className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-all"

@@ -5,8 +5,6 @@ interface Props {
   onClose: () => void;
   teams: Team[];
   matches: Match[];
-  zoomLevel?: number;
-  onZoomChange?: (level: number) => void;
 }
 
 interface PlayerStats {
@@ -21,7 +19,13 @@ interface PlayerStats {
   score: number;
 }
 
-const StatsDashboard: React.FC<Props> = ({ onClose, teams, matches, zoomLevel = 100, onZoomChange }) => {
+type SortField = 'POS' | 'SHT' | 'PAS' | 'INT' | 'FLS';
+
+const StatsDashboard: React.FC<Props> = ({ onClose, teams, matches }) => {
+  const [viewMode, setViewMode] = useState<'players' | 'teams'>('players');
+  const [sortField, setSortField] = useState<SortField>('POS');
+  const [sortDesc, setSortDesc] = useState(true);
+
   const [showAllScorers, setShowAllScorers] = useState(false);
   const [showAllAssists, setShowAllAssists] = useState(false);
   const [showAllMvps, setShowAllMvps] = useState(false);
@@ -108,6 +112,88 @@ const StatsDashboard: React.FC<Props> = ({ onClose, teams, matches, zoomLevel = 
     return Object.values(players);
   }, [matches, teams]);
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDesc(!sortDesc);
+    } else {
+      setSortField(field);
+      setSortDesc(true);
+    }
+  };
+
+  const teamStats = useMemo(() => {
+    const agg: Record<string, any> = {};
+    teams.forEach(t => {
+      agg[t.id] = {
+        id: t.id,
+        name: t.name,
+        logo: t.logo,
+        matchesPlayed: 0,
+        possessionSum: 0,
+        shotsSum: 0,
+        onTargetSum: 0,
+        passesSum: 0,
+        successfulPassesSum: 0,
+        interceptionsSum: 0,
+        foulsSum: 0
+      };
+    });
+
+    matches.forEach(m => {
+       // Only count completely finished matches that have stats
+       if (!m.isFinished || !m.stats) return;
+
+       if (agg[m.homeTeamId]) {
+         agg[m.homeTeamId].matchesPlayed++;
+         agg[m.homeTeamId].possessionSum += (m.stats.possessionHome || 0);
+         agg[m.homeTeamId].shotsSum += (m.stats.shotsHome || 0);
+         agg[m.homeTeamId].onTargetSum += (m.stats.onTargetHome || 0);
+         agg[m.homeTeamId].passesSum += (m.stats.passesHome || 0);
+         agg[m.homeTeamId].successfulPassesSum += (m.stats.successfulPassesHome || 0);
+         agg[m.homeTeamId].interceptionsSum += (m.stats.interceptionsHome || 0);
+         agg[m.homeTeamId].foulsSum += (m.stats.foulsHome || 0);
+       }
+
+       if (agg[m.awayTeamId]) {
+         agg[m.awayTeamId].matchesPlayed++;
+         agg[m.awayTeamId].possessionSum += (m.stats.possessionAway || 0);
+         agg[m.awayTeamId].shotsSum += (m.stats.shotsAway || 0);
+         agg[m.awayTeamId].onTargetSum += (m.stats.onTargetAway || 0);
+         agg[m.awayTeamId].passesSum += (m.stats.passesAway || 0);
+         agg[m.awayTeamId].successfulPassesSum += (m.stats.successfulPassesAway || 0);
+         agg[m.awayTeamId].interceptionsSum += (m.stats.interceptionsAway || 0);
+         agg[m.awayTeamId].foulsSum += (m.stats.foulsAway || 0);
+       }
+    });
+
+    const result = Object.values(agg).map(t => {
+      const avgPos = t.matchesPlayed > 0 && t.possessionSum ? (t.possessionSum / t.matchesPlayed) : 0;
+      const shtPct = t.shotsSum > 0 ? (t.onTargetSum / t.shotsSum) * 100 : 0;
+      const pasPct = t.passesSum > 0 ? (t.successfulPassesSum / t.passesSum) * 100 : 0;
+      const avgInt = t.matchesPlayed > 0 && t.interceptionsSum ? (t.interceptionsSum / t.matchesPlayed) : 0;
+      const avgFls = t.matchesPlayed > 0 && t.foulsSum ? (t.foulsSum / t.matchesPlayed) : 0;
+
+      return {
+        id: t.id,
+        name: t.name,
+        logo: t.logo,
+        POS: avgPos,
+        SHT: shtPct,
+        PAS: pasPct,
+        INT: avgInt,
+        FLS: avgFls,
+        matchesPlayed: t.matchesPlayed
+      };
+    }).filter(t => t.matchesPlayed > 0);
+
+    return result.sort((a, b) => {
+      const valA = a[sortField];
+      const valB = b[sortField];
+      return sortDesc ? valB - valA : valA - valB;
+    });
+
+  }, [matches, teams, sortField, sortDesc]);
+
   const ballonDorRanking = [...allStats].sort((a, b) => b.score - a.score).slice(0, 3);
   const topScorers = [...allStats].sort((a, b) => b.goals - a.goals).filter(p => p.goals > 0);
   const topAssists = [...allStats].sort((a, b) => b.assists - a.assists).filter(p => p.assists > 0);
@@ -128,28 +214,20 @@ const StatsDashboard: React.FC<Props> = ({ onClose, teams, matches, zoomLevel = 
         <div className="flex justify-between items-center px-6 py-4 max-w-screen-2xl mx-auto">
           <div className="text-2xl font-black tracking-tighter text-[#b1c6fc] italic font-headline uppercase">UCL Stats</div>
           <nav className="hidden md:flex items-center gap-8">
-            <a className="font-headline font-bold tracking-tight text-sm uppercase text-[#f5fff2] border-b-2 border-[#f5fff2] pb-1 transition-all" href="#">Oyunçuların Statistikası</a>
+            <button 
+              onClick={() => setViewMode('players')}
+              className={`font-headline font-bold tracking-tight text-sm uppercase transition-all pb-1 ${viewMode === 'players' ? 'text-[#f5fff2] border-b-2 border-[#f5fff2]' : 'text-[#b1c6fc] hover:text-[#f5fff2]'}`}
+            >
+              Oyunçuların Statistikası
+            </button>
+            <button 
+              onClick={() => setViewMode('teams')}
+              className={`font-headline font-bold tracking-tight text-sm uppercase transition-all pb-1 ${viewMode === 'teams' ? 'text-[#f5fff2] border-b-2 border-[#f5fff2]' : 'text-[#b1c6fc] hover:text-[#f5fff2]'}`}
+            >
+              Komanda Statistikləri
+            </button>
           </nav>
           <div className="flex items-center gap-4">
-            {onZoomChange && (
-              <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg p-1">
-                <button 
-                  onClick={() => onZoomChange(Math.max(50, zoomLevel - 10))}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                  title="Kiçilt"
-                >
-                  <span className="material-symbols-outlined text-sm">zoom_out</span>
-                </button>
-                <span className="text-[10px] font-black text-white w-8 text-center">{zoomLevel}%</span>
-                <button 
-                  onClick={() => onZoomChange(Math.min(150, zoomLevel + 10))}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                  title="Böyüt"
-                >
-                  <span className="material-symbols-outlined text-sm">zoom_in</span>
-                </button>
-              </div>
-            )}
             <button onClick={onClose} className="p-2 text-[#b1c6fc] hover:bg-[#f5fff2]/5 rounded-lg transition-all active:scale-95 duration-200">
               <span className="material-symbols-outlined">close</span>
             </button>
@@ -159,8 +237,10 @@ const StatsDashboard: React.FC<Props> = ({ onClose, teams, matches, zoomLevel = 
       </header>
       
       <main className="pt-24 pb-32 px-4 md:px-8 max-w-screen-2xl mx-auto ucl-bg-pattern relative z-10">
-        {/* Hero Section: Ballon d'Or Podium */}
-        <section className="mb-20">
+        {viewMode === 'players' ? (
+          <>
+            {/* Hero Section: Ballon d'Or Podium */}
+            <section className="mb-20">
           <div className="text-center mb-12">
             <span className="font-label text-secondary-fixed-dim tracking-[0.3em] text-xs uppercase font-bold">PREMİUM MÜKAFATLANDIRMA</span>
             <h2 className="font-headline text-4xl md:text-6xl font-extrabold tracking-tighter text-white mt-2">BALLON D'OR KÜRSÜSÜ</h2>
@@ -392,25 +472,78 @@ const StatsDashboard: React.FC<Props> = ({ onClose, teams, matches, zoomLevel = 
             </div>
           </div>
         </section>
+        </>
+        ) : (
+          <section className="w-full max-w-5xl mx-auto animate-in zoom-in-95 duration-500">
+            <div className="bg-black border border-white/20 rounded-xl overflow-hidden shadow-2xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[700px]">
+                  <thead className="bg-[#0f0f0f] border-b border-white/20">
+                    <tr>
+                      <th className="py-4 px-6 font-mono text-xs text-white/50 w-12 border-r border-white/10 uppercase tracking-widest text-center">#</th>
+                      <th className="py-4 px-6 font-mono text-xs text-white/50 font-bold border-r border-white/10 tracking-widest">TEAM</th>
+                      {[
+                        { key: 'POS', label: 'POS %' },
+                        { key: 'SHT', label: 'SHT %' },
+                        { key: 'PAS', label: 'PAS %' },
+                        { key: 'INT', label: 'INT' },
+                        { key: 'FLS', label: 'FLS' }
+                      ].map(col => (
+                        <th 
+                          key={col.key} 
+                          onClick={() => handleSort(col.key as SortField)}
+                          className="py-4 px-6 font-mono text-xs text-secondary-fixed cursor-pointer transition-colors hover:bg-white/5 border-r border-white/10 whitespace-nowrap text-right group select-none"
+                        >
+                          <div className="flex items-center justify-end gap-1">
+                            <span>{col.label}</span>
+                            <span className="material-symbols-outlined text-[10px] opacity-0 group-hover:opacity-50 transition-opacity">
+                              {sortField === col.key ? (sortDesc ? 'arrow_downward' : 'arrow_upward') : 'sort'}
+                            </span>
+                          </div>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamStats.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-20 text-center text-white/30 font-mono text-sm uppercase">Yeterli Veri Yoxdur</td>
+                      </tr>
+                    ) : teamStats.map((team, idx) => (
+                      <tr key={team.id} className="border-b border-white/10 hover:bg-white/[0.02] transition-colors">
+                        <td className="py-4 px-6 font-mono text-sm text-white/50 text-center border-r border-white/10">{idx + 1}</td>
+                        <td className="py-4 px-6 font-mono text-sm text-white font-bold border-r border-white/10 uppercase flex items-center gap-3">
+                          <img src={team.logo} alt={team.name} className="w-6 h-6 object-contain" />
+                          <span className="truncate max-w-[150px]">{team.name}</span>
+                        </td>
+                        <td className="py-4 px-6 font-mono text-sm text-white text-right border-r border-white/10">{team.POS.toFixed(1)}</td>
+                        <td className="py-4 px-6 font-mono text-sm text-white text-right border-r border-white/10">{team.SHT.toFixed(1)}</td>
+                        <td className="py-4 px-6 font-mono text-sm text-white text-right border-r border-white/10">{team.PAS.toFixed(1)}</td>
+                        <td className="py-4 px-6 font-mono text-sm text-white text-right border-r border-white/10">{team.INT.toFixed(1)}</td>
+                        <td className="py-4 px-6 font-mono text-sm text-white text-right">{team.FLS.toFixed(1)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
       </main>
 
       {/* BottomNavBar (Mobile Only) */}
-      <nav className="md:hidden fixed bottom-0 w-full z-50 bg-[#0a1421]/80 backdrop-blur-2xl border-t border-white/10 flex justify-around items-center px-8 pb-6 pt-2">
-        <button onClick={onClose} className="flex flex-col items-center justify-center bg-[#f5fff2]/10 text-[#f5fff2] rounded-full p-3 transition-all duration-300 ease-out scale-110">
-          <span className="material-symbols-outlined">leaderboard</span>
-          <span className="font-['Inter'] text-[10px] font-medium tracking-widest uppercase mt-1">Panel</span>
-        </button>
-        <button onClick={onClose} className="flex flex-col items-center justify-center text-[#6386be] p-3 hover:text-[#f5fff2] transition-all">
-          <span className="material-symbols-outlined">live_tv</span>
-          <span className="font-['Inter'] text-[10px] font-medium tracking-widest uppercase mt-1">Canlı</span>
-        </button>
-        <button onClick={onClose} className="flex flex-col items-center justify-center text-[#6386be] p-3 hover:text-[#f5fff2] transition-all">
-          <span className="material-symbols-outlined">format_list_numbered</span>
-          <span className="font-['Inter'] text-[10px] font-medium tracking-widest uppercase mt-1">Cədvəl</span>
-        </button>
-        <button onClick={onClose} className="flex flex-col items-center justify-center text-[#6386be] p-3 hover:text-[#f5fff2] transition-all">
+      <nav className="md:hidden fixed bottom-0 w-full z-50 bg-[#0a1421]/80 backdrop-blur-2xl border-t border-white/10 flex justify-around items-center px-4 pb-6 pt-2">
+        <button onClick={() => setViewMode('players')} className={`flex flex-col items-center justify-center p-3 transition-all duration-300 ease-out ${viewMode === 'players' ? 'bg-[#f5fff2]/10 text-[#f5fff2] rounded-full scale-110' : 'text-[#b1c6fc]'}`}>
           <span className="material-symbols-outlined">person</span>
-          <span className="font-['Inter'] text-[10px] font-medium tracking-widest uppercase mt-1">Profil</span>
+          <span className="font-['Inter'] text-[10px] font-medium tracking-widest uppercase mt-1">Oyunçu</span>
+        </button>
+        <button onClick={() => setViewMode('teams')} className={`flex flex-col items-center justify-center p-3 transition-all duration-300 ease-out ${viewMode === 'teams' ? 'bg-[#f5fff2]/10 text-[#f5fff2] rounded-full scale-110' : 'text-[#b1c6fc]'}`}>
+          <span className="material-symbols-outlined">groups</span>
+          <span className="font-['Inter'] text-[10px] font-medium tracking-widest uppercase mt-1">Komanda</span>
+        </button>
+        <button onClick={onClose} className="flex flex-col items-center justify-center text-[#6386be] p-3 hover:text-[#f5fff2] transition-all">
+           <span className="material-symbols-outlined">close</span>
+           <span className="font-['Inter'] text-[10px] font-medium tracking-widest uppercase mt-1">Bağla</span>
         </button>
       </nav>
 

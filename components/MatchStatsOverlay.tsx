@@ -1,10 +1,13 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Match, Team, MatchStats } from '../types';
 import { globalPlayers } from '../data/players';
 import { teamStadiums } from '../data/stadiums';
 import { allFootballClubs } from '../data/clubs';
 import MatchSummaryModal from './MatchSummaryModal';
+import html2canvas from 'html2canvas';
+import { callGeminiWithRetry } from '../src/services/gemini';
+import { Type } from "@google/genai";
 
 interface Props {
   match: Match;
@@ -12,11 +15,11 @@ interface Props {
   homeTeam: Team;
   awayTeam: Team;
   teamPlayers: Record<string, string[]>;
+  tournamentId?: string;
   onUpdateScore: (id: string, updates: Partial<Match>) => void;
   onStartInterview: (match: Match) => void;
   onClose: () => void;
-  zoomLevel?: number;
-  onZoomChange?: (level: number) => void;
+  canEdit?: boolean;
 }
 
 const getTeamCountry = (teamName: string): string => {
@@ -33,8 +36,13 @@ const getTeamCountry = (teamName: string): string => {
   return "";
 };
 
-const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayTeam, teamPlayers, onUpdateScore, onStartInterview, onClose, zoomLevel = 100, onZoomChange }) => {
+const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayTeam, teamPlayers, tournamentId, onUpdateScore, onStartInterview, onClose, canEdit = true }) => {
   const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [isLoadingInterview, setIsLoadingInterview] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const DEFAULT_LOGO = "https://cdn-icons-png.flaticon.com/512/16/16480.png";
 
   const currentStats: MatchStats = match.stats || {
@@ -45,13 +53,108 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
     cornersHome: 0, cornersAway: 0,
     offsidesHome: 0, offsidesAway: 0,
     passesHome: 0, passesAway: 0,
-    foulsHome: 0, foulsAway: 0
+    foulsHome: 0, foulsAway: 0,
+    freeKicksHome: 0, freeKicksAway: 0,
+    successfulPassesHome: 0, successfulPassesAway: 0,
+    crossesHome: 0, crossesAway: 0,
+    interceptionsHome: 0, interceptionsAway: 0,
+    tacklesHome: 0, tacklesAway: 0
   };
 
   const handleStatChange = (field: keyof MatchStats, val: number | null) => {
     const finalVal = val === null ? 0 : val;
     const newStats = { ...currentStats, [field]: finalVal };
     onUpdateScore(match.id, { stats: newStats });
+  };
+
+  const handleTakeScreenshot = async () => {
+    if (!statsRef.current) return;
+    setIsCapturing(true);
+    try {
+      const canvas = await html2canvas(statsRef.current, {
+        backgroundColor: '#050e1c',
+        scale: 2,
+        logging: false,
+        useCORS: true
+      });
+      const link = document.createElement('a');
+      link.download = `match-stats-${match.id}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Screenshot error:', err);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  const handleUploadImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = (reader.result as string).split(',')[1];
+        
+        const prompt = `Bu şəkildəki futbol matçı statistikalarını analiz et və aşağıdakı JSON formatında qaytar. 
+        Yalnız JSON qaytar, başqa heç nə yazma.
+        
+        JSON formatı:
+        {
+          "possessionHome": number, "possessionAway": number,
+          "shotsHome": number, "shotsAway": number,
+          "onTargetHome": number, "onTargetAway": number,
+          "savesHome": number, "savesAway": number,
+          "cornersHome": number, "cornersAway": number,
+          "offsidesHome": number, "offsidesAway": number,
+          "passesHome": number, "passesAway": number,
+          "foulsHome": number, "foulsAway": number,
+          "freeKicksHome": number, "freeKicksAway": number,
+          "successfulPassesHome": number, "successfulPassesAway": number,
+          "crossesHome": number, "crossesAway": number,
+          "interceptionsHome": number, "interceptionsAway": number,
+          "tacklesHome": number, "tacklesAway": number
+        }`;
+
+        const response = await callGeminiWithRetry({
+          model: "gemini-2.0-flash",
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                {
+                  inlineData: {
+                    mimeType: file.type,
+                    data: base64Data
+                  }
+                }
+              ]
+            }
+          ],
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+
+        const text = response.text;
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsedStats = JSON.parse(jsonMatch[0]);
+          onUpdateScore(match.id, { stats: { ...currentStats, ...parsedStats } });
+          alert('Statistikalar uğurla yükləndi!');
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      console.error('Upload error:', err);
+      alert('Statistikaları oxumaq mümkün olmadı.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const isHomeWinner = (match.homeScore || 0) > (match.awayScore || 0);
@@ -86,25 +189,6 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
             <div className="text-lg md:text-2xl font-black italic tracking-tighter text-[#f5fff2] font-headline">UEFA CHAMPIONS LEAGUE</div>
           </div>
           <div className="flex items-center gap-2 md:gap-4 text-[#b1c6fc]">
-            {onZoomChange && (
-              <div className="hidden md:flex items-center gap-1 bg-black/40 rounded-xl p-1 border border-white/10 mr-2">
-                <button 
-                  onClick={() => onZoomChange(Math.max(50, zoomLevel - 10))}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                  title="Kiçilt"
-                >
-                  <span className="material-symbols-outlined text-sm">zoom_out</span>
-                </button>
-                <span className="text-xs font-black text-white w-10 text-center">{zoomLevel}%</span>
-                <button 
-                  onClick={() => onZoomChange(Math.min(150, zoomLevel + 10))}
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                  title="Böyüt"
-                >
-                  <span className="material-symbols-outlined text-sm">zoom_in</span>
-                </button>
-              </div>
-            )}
             <button onClick={onClose} className="p-2 hover:bg-[#2c3544]/50 rounded-full transition-all duration-300 active:scale-95 flex items-center gap-2">
               <span className="material-symbols-outlined">close</span>
               <span className="hidden md:inline font-bold text-sm uppercase tracking-widest">Bağla</span>
@@ -149,11 +233,12 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
                     <input 
                       type="number"
                       value={match.homeScore ?? ''}
+                      disabled={!canEdit}
                       onChange={(e) => {
                         const val = parseInt(e.target.value);
                         onUpdateScore(match.id, { homeScore: isNaN(val) ? null : val });
                       }}
-                      className="w-12 md:w-24 h-12 md:h-24 bg-white/5 border border-white/10 text-center outline-none focus:ring-2 focus:ring-primary/50 rounded-2xl text-2xl md:text-6xl font-black italic text-white"
+                      className={`w-12 md:w-24 h-12 md:h-24 bg-white/5 border border-white/10 text-center outline-none focus:ring-2 focus:ring-primary/50 rounded-2xl text-2xl md:text-6xl font-black italic text-white ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
                       placeholder="-"
                     />
                   </div>
@@ -164,11 +249,12 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
                     <input 
                       type="number"
                       value={match.awayScore ?? ''}
+                      disabled={!canEdit}
                       onChange={(e) => {
                         const val = parseInt(e.target.value);
                         onUpdateScore(match.id, { awayScore: isNaN(val) ? null : val });
                       }}
-                      className="w-12 md:w-24 h-12 md:h-24 bg-white/5 border border-white/10 text-center outline-none focus:ring-2 focus:ring-primary/50 rounded-2xl text-2xl md:text-6xl font-black italic text-white"
+                      className={`w-12 md:w-24 h-12 md:h-24 bg-white/5 border border-white/10 text-center outline-none focus:ring-2 focus:ring-primary/50 rounded-2xl text-2xl md:text-6xl font-black italic text-white ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
                       placeholder="-"
                     />
                   </div>
@@ -195,14 +281,16 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
                 </div>
                 <div className="flex gap-4">
                   <button 
-                    onClick={() => onUpdateScore(match.id, { penaltyWinnerId: homeTeam.id })}
-                    className={`flex-1 py-4 rounded-2xl border-2 transition-all font-black italic uppercase tracking-widest text-xs ${match.penaltyWinnerId === homeTeam.id ? 'bg-secondary-fixed border-secondary-fixed text-on-secondary-fixed' : 'bg-white/5 border-white/10 text-white hover:border-secondary-fixed/50'}`}
+                    onClick={() => canEdit && onUpdateScore(match.id, { penaltyWinnerId: homeTeam.id })}
+                    disabled={!canEdit}
+                    className={`flex-1 py-4 rounded-2xl border-2 transition-all font-black italic uppercase tracking-widest text-xs ${match.penaltyWinnerId === homeTeam.id ? 'bg-secondary-fixed border-secondary-fixed text-on-secondary-fixed' : 'bg-white/5 border-white/10 text-white hover:border-secondary-fixed/50'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {homeTeam.name}
                   </button>
                   <button 
-                    onClick={() => onUpdateScore(match.id, { penaltyWinnerId: awayTeam.id })}
-                    className={`flex-1 py-4 rounded-2xl border-2 transition-all font-black italic uppercase tracking-widest text-xs ${match.penaltyWinnerId === awayTeam.id ? 'bg-secondary-fixed border-secondary-fixed text-on-secondary-fixed' : 'bg-white/5 border-white/10 text-white hover:border-secondary-fixed/50'}`}
+                    onClick={() => canEdit && onUpdateScore(match.id, { penaltyWinnerId: awayTeam.id })}
+                    disabled={!canEdit}
+                    className={`flex-1 py-4 rounded-2xl border-2 transition-all font-black italic uppercase tracking-widest text-xs ${match.penaltyWinnerId === awayTeam.id ? 'bg-secondary-fixed border-secondary-fixed text-on-secondary-fixed' : 'bg-white/5 border-white/10 text-white hover:border-secondary-fixed/50'} ${!canEdit ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     {awayTeam.name}
                   </button>
@@ -227,87 +315,178 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start pb-12">
           {/* Statistics Table */}
           <div className="lg:col-span-8 space-y-6">
-            <div className="glass-panel rounded-[2rem] p-6 md:p-8 shadow-2xl">
-              <div className="flex justify-between items-end mb-8">
-                <h3 className="font-headline text-xl md:text-2xl font-extrabold tracking-tight uppercase">Matç Statistikası</h3>
-                <span className="font-label text-[8px] md:text-[10px] text-on-surface-variant tracking-[0.3em] uppercase">Rəsmi Məlumatlar</span>
+            <div ref={statsRef} className="glass-panel rounded-[2rem] p-6 md:p-8 shadow-2xl bg-[#050e1c] border border-white/10 relative overflow-hidden">
+              {/* Background Pattern */}
+              <div className="absolute inset-0 opacity-5 pointer-events-none">
+                <div className="absolute inset-0" style={{ backgroundImage: 'radial-gradient(#b1c6fc 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
               </div>
-              
-              <div className="space-y-4">
-                <StatInputRow 
-                  label="Topa sahiblik" 
-                  homeVal={currentStats.possessionHome} 
-                  awayVal={currentStats.possessionAway} 
-                  onHomeChange={(v) => handleStatChange('possessionHome', v)} 
-                  onAwayChange={(v) => handleStatChange('possessionAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner}
-                  isPercentage={true}
-                />
-                <StatInputRow 
-                  label="Ümumi zərbələr" 
-                  homeVal={currentStats.shotsHome} 
-                  awayVal={currentStats.shotsAway} 
-                  onHomeChange={(v) => handleStatChange('shotsHome', v)} 
-                  onAwayChange={(v) => handleStatChange('shotsAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner} 
-                />
-                <StatInputRow 
-                  label="Çərçivəyə zərbə" 
-                  homeVal={currentStats.onTargetHome} 
-                  awayVal={currentStats.onTargetAway} 
-                  onHomeChange={(v) => handleStatChange('onTargetHome', v)} 
-                  onAwayChange={(v) => handleStatChange('onTargetAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner} 
-                />
-                <StatInputRow 
-                  label="Seyvlər" 
-                  homeVal={currentStats.savesHome} 
-                  awayVal={currentStats.savesAway} 
-                  onHomeChange={(v) => handleStatChange('savesHome', v)} 
-                  onAwayChange={(v) => handleStatChange('savesAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner} 
-                />
-                <StatInputRow 
-                  label="Künc zərbələri" 
-                  homeVal={currentStats.cornersHome} 
-                  awayVal={currentStats.cornersAway} 
-                  onHomeChange={(v) => handleStatChange('cornersHome', v)} 
-                  onAwayChange={(v) => handleStatChange('cornersAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner} 
-                />
-                <StatInputRow 
-                  label="Ofsaydlar" 
-                  homeVal={currentStats.offsidesHome} 
-                  awayVal={currentStats.offsidesAway} 
-                  onHomeChange={(v) => handleStatChange('offsidesHome', v)} 
-                  onAwayChange={(v) => handleStatChange('offsidesAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner} 
-                />
-                <StatInputRow 
-                  label="Ötürmələr" 
-                  homeVal={currentStats.passesHome} 
-                  awayVal={currentStats.passesAway} 
-                  onHomeChange={(v) => handleStatChange('passesHome', v)} 
-                  onAwayChange={(v) => handleStatChange('passesAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner} 
-                />
-                <StatInputRow 
-                  label="Qayda pozuntusu" 
-                  homeVal={currentStats.foulsHome} 
-                  awayVal={currentStats.foulsAway} 
-                  onHomeChange={(v) => handleStatChange('foulsHome', v)} 
-                  onAwayChange={(v) => handleStatChange('foulsAway', v)} 
-                  highlightHome={isHomeWinner} 
-                  highlightAway={isAwayWinner} 
-                />
+
+              <div className="relative z-10">
+                <div className="flex justify-between items-end mb-8">
+                  <h3 className="font-headline text-xl md:text-2xl font-extrabold tracking-tight uppercase text-white">Matç Statistikası</h3>
+                  <span className="font-label text-[8px] md:text-[10px] text-[#b1c6fc]/40 tracking-[0.3em] uppercase">Rəsmi Məlumatlar</span>
+                </div>
+                
+                <div className="space-y-4">
+                  <StatInputRow 
+                    label="Topa sahiblik" 
+                    homeVal={currentStats.possessionHome} 
+                    awayVal={currentStats.possessionAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('possessionHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('possessionAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner}
+                    isPercentage={true}
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Ümumi zərbələr" 
+                    homeVal={currentStats.shotsHome} 
+                    awayVal={currentStats.shotsAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('shotsHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('shotsAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Çərçivəyə zərbə" 
+                    homeVal={currentStats.onTargetHome} 
+                    awayVal={currentStats.onTargetAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('onTargetHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('onTargetAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Seyvlər" 
+                    homeVal={currentStats.savesHome} 
+                    awayVal={currentStats.savesAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('savesHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('savesAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Künc zərbələri" 
+                    homeVal={currentStats.cornersHome} 
+                    awayVal={currentStats.cornersAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('cornersHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('cornersAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Ofsaydlar" 
+                    homeVal={currentStats.offsidesHome} 
+                    awayVal={currentStats.offsidesAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('offsidesHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('offsidesAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Ötürmələr" 
+                    homeVal={currentStats.passesHome} 
+                    awayVal={currentStats.passesAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('passesHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('passesAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Qayda pozuntusu" 
+                    homeVal={currentStats.foulsHome} 
+                    awayVal={currentStats.foulsAway} 
+                    onHomeChange={(v) => canEdit && handleStatChange('foulsHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('foulsAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Cərimə zərbələri" 
+                    homeVal={currentStats.freeKicksHome || 0} 
+                    awayVal={currentStats.freeKicksAway || 0} 
+                    onHomeChange={(v) => canEdit && handleStatChange('freeKicksHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('freeKicksAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Uğurlu ötürmələr" 
+                    homeVal={currentStats.successfulPassesHome || 0} 
+                    awayVal={currentStats.successfulPassesAway || 0} 
+                    onHomeChange={(v) => canEdit && handleStatChange('successfulPassesHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('successfulPassesAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Cinah ötürmələri" 
+                    homeVal={currentStats.crossesHome || 0} 
+                    awayVal={currentStats.crossesAway || 0} 
+                    onHomeChange={(v) => canEdit && handleStatChange('crossesHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('crossesAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Top qapma" 
+                    homeVal={currentStats.interceptionsHome || 0} 
+                    awayVal={currentStats.interceptionsAway || 0} 
+                    onHomeChange={(v) => canEdit && handleStatChange('interceptionsHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('interceptionsAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                  <StatInputRow 
+                    label="Müdaxilələr" 
+                    homeVal={currentStats.tacklesHome || 0} 
+                    awayVal={currentStats.tacklesAway || 0} 
+                    onHomeChange={(v) => canEdit && handleStatChange('tacklesHome', v)} 
+                    onAwayChange={(v) => canEdit && handleStatChange('tacklesAway', v)} 
+                    highlightHome={isHomeWinner} 
+                    highlightAway={isAwayWinner} 
+                    disabled={!canEdit}
+                  />
+                </div>
               </div>
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              <button 
+                onClick={handleTakeScreenshot}
+                disabled={isCapturing}
+                className="flex-1 flex items-center justify-center gap-3 px-6 py-4 bg-white/5 border border-white/10 rounded-2xl font-bold text-xs uppercase tracking-widest text-white hover:bg-white/10 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined">{isCapturing ? 'hourglass_empty' : 'photo_camera'}</span>
+                {isCapturing ? 'ŞƏKİL ÇƏKİLİR...' : 'ŞƏKLİ ÇƏK'}
+              </button>
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="flex-1 flex items-center justify-center gap-3 px-6 py-4 bg-amber-500/10 border border-amber-500/20 rounded-2xl font-bold text-xs uppercase tracking-widest text-amber-500 hover:bg-amber-500/20 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <span className="material-symbols-outlined">{isUploading ? 'sync' : 'upload_file'}</span>
+                {isUploading ? 'OXUNUR...' : 'ŞƏKİL YÜKLƏ'}
+              </button>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleUploadImage} 
+                className="hidden" 
+                accept="image/*"
+              />
             </div>
           </div>
 
@@ -329,13 +508,16 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
                   </p>
                   <button 
                     onClick={() => {
-                      onStartInterview(match);
-                      onClose();
+                      setIsLoadingInterview(true);
+                      setTimeout(() => {
+                        onStartInterview(match);
+                      }, 2500);
                     }}
-                    className="w-full group/btn relative flex items-center justify-center gap-3 px-6 py-5 bg-gradient-to-r from-primary to-on-tertiary-container rounded-2xl font-headline font-black text-xs md:text-sm uppercase tracking-widest text-on-primary transition-all duration-300 hover:shadow-[0_0_30px_rgba(177,198,252,0.4)] active:scale-95"
+                    disabled={isLoadingInterview}
+                    className="w-full group/btn relative flex items-center justify-center gap-3 px-6 py-5 bg-gradient-to-r from-primary to-on-tertiary-container rounded-2xl font-headline font-black text-xs md:text-sm uppercase tracking-widest text-on-primary transition-all duration-300 hover:shadow-[0_0_30px_rgba(177,198,252,0.4)] active:scale-95 disabled:opacity-50"
                   >
                     <span className="material-symbols-outlined text-xl">mic_external_on</span>
-                    MƏTBUAT KONFRANSINA KEÇİD
+                    {isLoadingInterview ? 'HAZIRLANIR...' : 'MƏTBUAT KONFRANSINA KEÇİD'}
                     <div className="absolute inset-0 rounded-2xl border border-white/20 group-hover/btn:border-white/40 transition-colors"></div>
                   </button>
                 </div>
@@ -365,14 +547,26 @@ const MatchStatsOverlay: React.FC<Props> = ({ match, allMatches, homeTeam, awayT
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           teamPlayers={teamPlayers}
-          aggregateText={aggregateText}
+          tournamentId={tournamentId}
           onClose={() => setShowSummaryModal(false)}
           onUpdate={(details) => {
             onUpdateScore(match.id, details);
           }}
-          zoomLevel={zoomLevel}
-          onZoomChange={onZoomChange}
         />
+      )}
+
+      {isLoadingInterview && (
+        <div className="fixed inset-0 z-[500] bg-black/90 backdrop-blur-xl flex flex-col items-center justify-center animate-in fade-in duration-500">
+          <div className="relative w-32 h-32 mb-8">
+            <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="material-symbols-outlined text-4xl text-primary animate-pulse">mic</span>
+            </div>
+          </div>
+          <h2 className="text-2xl font-black text-white uppercase tracking-[0.3em] mb-2">Mətbuat konfransı hazırlanır</h2>
+          <p className="text-primary/60 text-xs font-bold uppercase tracking-widest animate-pulse">Zəhmət olmasa gözləyin...</p>
+        </div>
       )}
     </div>
   );
@@ -386,24 +580,26 @@ const StatInputRow: React.FC<{
   onAwayChange: (v: number | null) => void,
   highlightHome: boolean,
   highlightAway: boolean,
-  isPercentage?: boolean
-}> = ({ label, homeVal, awayVal, onHomeChange, onAwayChange, highlightHome, highlightAway, isPercentage }) => {
+  isPercentage?: boolean,
+  disabled?: boolean
+}> = ({ label, homeVal, awayVal, onHomeChange, onAwayChange, highlightHome, highlightAway, isPercentage, disabled }) => {
   const total = homeVal + awayVal;
   const homePct = total > 0 ? (homeVal / total) * 100 : 50;
   const awayPct = total > 0 ? (awayVal / total) * 100 : 50;
 
   return (
-    <div className="group stat-row rounded-2xl p-4 transition-all">
+    <div className={`group stat-row rounded-2xl p-4 transition-all ${disabled ? 'opacity-80' : ''}`}>
       <div className="flex justify-between items-center mb-2">
         <div className="flex items-center">
           <input 
             type="number" 
             value={homeVal === 0 && label !== "Topa sahiblik" ? "" : homeVal} 
+            disabled={disabled}
             onChange={(e) => {
               const val = parseInt(e.target.value);
               onHomeChange(isNaN(val) ? null : val);
             }}
-            className={`bg-transparent border-none text-lg font-bold outline-none w-16 p-0 text-left ${highlightHome ? 'text-secondary-fixed shadow-[0_0_15px_rgba(97,255,151,0.2)]' : 'text-on-surface'}`}
+            className={`bg-transparent border-none text-lg font-bold outline-none w-16 p-0 text-left ${highlightHome ? 'text-secondary-fixed shadow-[0_0_15px_rgba(97,255,151,0.2)]' : 'text-on-surface'} ${disabled ? 'cursor-not-allowed' : ''}`}
             placeholder="0"
           />
           {isPercentage && <span className="text-lg font-bold text-on-surface">%</span>}
@@ -415,11 +611,12 @@ const StatInputRow: React.FC<{
           <input 
             type="number" 
             value={awayVal === 0 && label !== "Topa sahiblik" ? "" : awayVal} 
+            disabled={disabled}
             onChange={(e) => {
               const val = parseInt(e.target.value);
               onAwayChange(isNaN(val) ? null : val);
             }}
-            className={`bg-transparent border-none text-lg font-bold outline-none w-16 p-0 text-right ${highlightAway ? 'text-secondary-fixed shadow-[0_0_15px_rgba(97,255,151,0.2)]' : 'text-on-surface'}`}
+            className={`bg-transparent border-none text-lg font-bold outline-none w-16 p-0 text-right ${highlightAway ? 'text-secondary-fixed shadow-[0_0_15px_rgba(97,255,151,0.2)]' : 'text-on-surface'} ${disabled ? 'cursor-not-allowed' : ''}`}
             placeholder="0"
           />
           {isPercentage && <span className="text-lg font-bold text-on-surface">%</span>}

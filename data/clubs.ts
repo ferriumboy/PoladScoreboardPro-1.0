@@ -1,5 +1,6 @@
 
 export interface ClubData {
+  id: string;
   name: string;
   logo: string;
 }
@@ -360,6 +361,7 @@ const getClubsByNames = (names: string[]): ClubData[] => {
       logo = teamLogos[cleanName];
     }
     return { 
+      id: `club-${name.toLowerCase().replace(/\s+/g, '-')}`,
       name, 
       logo: logo || "https://cdn-icons-png.flaticon.com/512/16/16480.png" 
     };

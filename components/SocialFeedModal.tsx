@@ -6,8 +6,6 @@ import DirectMessageModal from './DirectMessageModal';
 interface Props {
   onClose: () => void;
   posts: SocialPost[];
-  zoomLevel?: number;
-  onZoomChange?: (level: number) => void;
   onOpenDM: (handle: string, author: string, avatar: string) => void;
   // DM Props
   activeDM: string | null;
@@ -78,8 +76,6 @@ const CommentInput: React.FC<CommentInputProps> = ({ postId, isGenerating, onPos
 const SocialFeedModal: React.FC<Props> = ({ 
   onClose, 
   posts, 
-  zoomLevel = 100, 
-  onZoomChange, 
   onOpenDM,
   activeDM,
   dmConversations,
@@ -243,7 +239,7 @@ const SocialFeedModal: React.FC<Props> = ({
       {/* Content */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {activeTab === 'feed' ? (
-          <div className="w-full max-w-[600px] mx-auto flex flex-col gap-8 py-10 px-4" style={{ zoom: zoomLevel / 100 }}>
+          <div className="w-full max-w-[600px] mx-auto flex flex-col gap-8 py-10 px-4">
             {localPosts.length === 0 ? (
               <div className="bg-black border border-[#44464f]/20 rounded-lg p-8 text-center text-[#dae3f6]">
                 Hələ heç bir paylaşım yoxdur.
@@ -320,7 +316,7 @@ const SocialFeedModal: React.FC<Props> = ({
                         <button className="material-symbols-outlined text-2xl text-[#dae3f6]">bookmark</button>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-sm font-bold text-[#dae3f6]">124,562 likes</p>
+                        <p className="text-sm font-bold text-[#dae3f6]">{post.likes ? post.likes.toLocaleString() : '124,562'} likes</p>
                         <p className="text-sm">
                           <span className="font-bold mr-1">cl_arena</span> 
                           {post.matchDetails}
@@ -431,8 +427,22 @@ const SocialFeedModal: React.FC<Props> = ({
                        className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl mb-3 cursor-pointer"
                      >
                        <img src={conv.avatar} className="w-12 h-12 rounded-full" alt="" />
-                       <div>
-                         <p className="text-white font-bold">{conv.author}</p>
+                       <div className="flex-1 min-w-0">
+                         <div className="flex justify-between items-center">
+                           <p className="text-white font-bold truncate">{conv.author}</p>
+                           <div className="flex flex-col items-end">
+                             <div className="w-10 h-1 bg-white/10 rounded-full overflow-hidden">
+                               <div 
+                                 className={`h-full transition-all duration-500 ${
+                                   (conv.toxicityLevel || 0) > 70 ? 'bg-red-500' : 
+                                   (conv.toxicityLevel || 0) > 40 ? 'bg-orange-500' : 'bg-[#00e476]'
+                                 }`}
+                                 style={{ width: `${conv.toxicityLevel || 0}%` }}
+                               ></div>
+                             </div>
+                             <span className="text-[7px] font-black uppercase tracking-tighter text-white/30 mt-0.5">Toxicity</span>
+                           </div>
+                         </div>
                          <p className="text-white/40 text-xs truncate">{conv.messages[conv.messages.length-1]?.text}</p>
                        </div>
                      </div>

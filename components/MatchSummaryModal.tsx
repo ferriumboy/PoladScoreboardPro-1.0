@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Match, Team } from '../types';
 import { globalPlayers } from '../data/players';
+import VideoRecorderModal from './VideoRecorderModal';
+import VideoSelectionModal from './VideoSelectionModal';
+import { saveGoalVideo, getGoalVideos } from '../utils/videoService';
 
 interface Props {
   match: Match;
@@ -8,13 +11,12 @@ interface Props {
   awayTeam: Team;
   teamPlayers: Record<string, string[]>;
   aggregateText?: string;
+  tournamentId?: string;
   onUpdate: (details: Partial<Match>) => void;
   onClose: () => void;
-  zoomLevel?: number;
-  onZoomChange?: (level: number) => void;
 }
 
-const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPlayers, aggregateText, onUpdate, onClose, zoomLevel = 100, onZoomChange }) => {
+const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPlayers, aggregateText, tournamentId, onUpdate, onClose }) => {
   const DEFAULT_LOGO = "https://cdn-icons-png.flaticon.com/512/16/16480.png";
 
   const [localMatch, setLocalMatch] = useState<Partial<Match>>({
@@ -30,7 +32,21 @@ const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPla
   });
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [recordingScorer, setRecordingScorer] = useState<{name: string, side: 'home'|'away', idx: number} | null>(null);
+  const [videoSelection, setVideoSelection] = useState<{name: string, side: 'home'|'away', idx: number} | null>(null);
+  const [useCamera, setUseCamera] = useState(false);
+  const [uploadedBlob, setUploadedBlob] = useState<Blob | null>(null);
+  const [savedVideoIds, setSavedVideoIds] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const updateTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    const fetchSavedVideos = async () => {
+      const videos = await getGoalVideos();
+      setSavedVideoIds(videos.map(v => v.id));
+    };
+    fetchSavedVideos();
+  }, []);
 
   const handleLocalUpdate = (updates: Partial<Match>) => {
     setLocalMatch(prev => {
@@ -47,6 +63,28 @@ const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPla
     const scorers = side === 'home' ? [...(localMatch.homeScorers || [])] : [...(localMatch.awayScorers || [])];
     scorers[idx] = val;
     handleLocalUpdate(side === 'home' ? { homeScorers: scorers } : { awayScorers: scorers });
+  };
+
+  const handleSaveVideo = async (blob: Blob) => {
+    const scorer = recordingScorer || videoSelection;
+    if (!scorer) return;
+    const videoId = `goal-${match.id}-${scorer.side}-${scorer.idx}`;
+    console.log(`Saving video for goal: ${videoId}, tournamentId: ${tournamentId || 'default'}`);
+    await saveGoalVideo({
+      id: videoId,
+      tournamentId: tournamentId || 'default',
+      matchId: match.id,
+      scorerName: scorer.name,
+      stageName: match.stageName || 'Qrup Mərhələsi',
+      homeTeam: homeTeam.name,
+      awayTeam: awayTeam.name,
+      videoBlob: blob
+    });
+    setSavedVideoIds(prev => [...new Set([...prev, videoId])]);
+    setRecordingScorer(null);
+    setVideoSelection(null);
+    setUseCamera(false);
+    setUploadedBlob(null);
   };
 
   const handleAssistChange = (side: 'home' | 'away', idx: number, val: string) => {
@@ -125,25 +163,6 @@ const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPla
       <div className="glass-panel w-full max-w-4xl rounded-2xl md:rounded-[2rem] overflow-hidden shadow-2xl flex flex-col md:flex-row border border-white/10 relative max-h-[95vh] md:max-h-[90vh]">
         
         <div className="absolute top-4 right-4 z-50 flex items-center gap-2">
-          {onZoomChange && (
-            <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg p-1">
-              <button 
-                onClick={() => onZoomChange(Math.max(50, zoomLevel - 10))}
-                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                title="Kiçilt"
-              >
-                <span className="material-symbols-outlined text-sm">zoom_out</span>
-              </button>
-              <span className="text-[10px] font-black text-white w-8 text-center">{zoomLevel}%</span>
-              <button 
-                onClick={() => onZoomChange(Math.min(150, zoomLevel + 10))}
-                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 text-white transition-all"
-                title="Böyüt"
-              >
-                <span className="material-symbols-outlined text-sm">zoom_in</span>
-              </button>
-            </div>
-          )}
           <button onClick={onClose} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors text-white">
             <span className="material-symbols-outlined">close</span>
           </button>
@@ -240,17 +259,37 @@ const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPla
                     <h3 className="text-[10px] font-bold text-white/40 uppercase mb-2">{homeTeam.name}</h3>
                     {Array.from({ length: Math.max(0, match.homeScore || 0) }).map((_, i) => (
                       <div key={`home-scorer-${i}`} className="flex items-center justify-between group mb-2">
-                        <input 
-                          list="all-players-modal" 
-                          value={localMatch.homeScorers?.[i] || ''} 
-                          onFocus={(e) => setSearchQuery(e.target.value)}
-                          onChange={(e) => {
-                            setSearchQuery(e.target.value);
-                            handleScorerChange('home', i, e.target.value);
-                          }} 
-                          className="w-full bg-transparent border-b border-white/10 focus:border-secondary-fixed text-sm text-white font-bold outline-none placeholder-white/20" 
-                          placeholder="Oyunçu adı..." 
-                        />
+                        <div className="flex-1 flex items-center">
+                          <input 
+                            list="all-players-modal" 
+                            value={localMatch.homeScorers?.[i] || ''} 
+                            onFocus={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) => {
+                              setSearchQuery(e.target.value);
+                              handleScorerChange('home', i, e.target.value);
+                            }} 
+                            className="w-full bg-transparent border-b border-white/10 focus:border-secondary-fixed text-sm text-white font-bold outline-none placeholder-white/20" 
+                            placeholder="Oyunçu adı..." 
+                          />
+                          {localMatch.homeScorers?.[i] && (
+                            <button 
+                              onClick={() => setVideoSelection({ name: localMatch.homeScorers![i], side: 'home', idx: i })}
+                              className={`ml-2 px-2 py-0.5 text-white text-[10px] font-bold rounded-full animate-pulse hover:animate-none flex items-center gap-1 shadow-lg transition-all duration-300 ${
+                                savedVideoIds.includes(`goal-${match.id}-home-${i}`) 
+                                  ? 'bg-green-500 shadow-green-500/50 scale-110 border border-white/20' 
+                                  : 'bg-gradient-to-r from-rose-500 to-orange-500 shadow-rose-500/20'
+                              }`}
+                              title="Videoya Al"
+                            >
+                              <span className="material-symbols-outlined text-[10px]">
+                                {savedVideoIds.includes(`goal-${match.id}-home-${i}`) ? 'arrow_upward' : 'videocam'}
+                              </span>
+                              <span className="hidden sm:inline">
+                                {savedVideoIds.includes(`goal-${match.id}-home-${i}`) ? 'YÜKLƏNDİ' : 'ÇƏK'}
+                              </span>
+                            </button>
+                          )}
+                        </div>
                         <span className="material-symbols-outlined text-secondary-fixed text-sm ml-2" data-icon="sports_soccer" data-weight="fill" style={{fontVariationSettings: "'FILL' 1"}}>sports_soccer</span>
                       </div>
                     ))}
@@ -260,17 +299,37 @@ const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPla
                     {Array.from({ length: Math.max(0, match.awayScore || 0) }).map((_, i) => (
                       <div key={`away-scorer-${i}`} className="flex items-center justify-between group mb-2">
                         <span className="material-symbols-outlined text-secondary-fixed text-sm mr-2" data-icon="sports_soccer" data-weight="fill" style={{fontVariationSettings: "'FILL' 1"}}>sports_soccer</span>
-                        <input 
-                          list="all-players-modal" 
-                          value={localMatch.awayScorers?.[i] || ''} 
-                          onFocus={(e) => setSearchQuery(e.target.value)}
-                          onChange={(e) => {
-                            setSearchQuery(e.target.value);
-                            handleScorerChange('away', i, e.target.value);
-                          }} 
-                          className="w-full bg-transparent border-b border-white/10 focus:border-secondary-fixed text-sm text-white font-bold outline-none text-right placeholder-white/20" 
-                          placeholder="Oyunçu adı..." 
-                        />
+                        <div className="flex-1 flex items-center justify-end">
+                          {localMatch.awayScorers?.[i] && (
+                            <button 
+                              onClick={() => setVideoSelection({ name: localMatch.awayScorers![i], side: 'away', idx: i })}
+                              className={`mr-2 px-2 py-0.5 text-white text-[10px] font-bold rounded-full animate-pulse hover:animate-none flex items-center gap-1 shadow-lg transition-all duration-300 ${
+                                savedVideoIds.includes(`goal-${match.id}-away-${i}`) 
+                                  ? 'bg-green-500 shadow-green-500/50 scale-110 border border-white/20' 
+                                  : 'bg-gradient-to-r from-rose-500 to-orange-500 shadow-rose-500/20'
+                              }`}
+                              title="Videoya Al"
+                            >
+                              <span className="hidden sm:inline">
+                                {savedVideoIds.includes(`goal-${match.id}-away-${i}`) ? 'YÜKLƏNDİ' : 'ÇƏK'}
+                              </span>
+                              <span className="material-symbols-outlined text-[10px]">
+                                {savedVideoIds.includes(`goal-${match.id}-away-${i}`) ? 'arrow_upward' : 'videocam'}
+                              </span>
+                            </button>
+                          )}
+                          <input 
+                            list="all-players-modal" 
+                            value={localMatch.awayScorers?.[i] || ''} 
+                            onFocus={(e) => setSearchQuery(e.target.value)}
+                            onChange={(e) => {
+                              setSearchQuery(e.target.value);
+                              handleScorerChange('away', i, e.target.value);
+                            }} 
+                            className="w-full bg-transparent border-b border-white/10 focus:border-secondary-fixed text-sm text-white font-bold outline-none text-right placeholder-white/20" 
+                            placeholder="Oyunçu adı..." 
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -434,6 +493,60 @@ const MatchSummaryModal: React.FC<Props> = ({ match, homeTeam, awayTeam, teamPla
       <datalist id="all-players-modal">
         {filteredPlayers.map((p, i) => <option key={`all-player-modal-${p}-${i}`} value={p} />)}
       </datalist>
+      {/* Video Selection Modal */}
+      {videoSelection && (
+        <VideoSelectionModal
+          onClose={() => setVideoSelection(null)}
+          onSelect={(type) => {
+            if (type === 'camera') {
+              setUseCamera(true);
+              setRecordingScorer(videoSelection);
+            } else {
+              fileInputRef.current?.click();
+            }
+            setVideoSelection(null);
+          }}
+        />
+      )}
+
+      {/* File Input for Upload */}
+      <input 
+        type="file" 
+        accept="video/*,application/pdf" 
+        className="hidden" 
+        ref={fileInputRef}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && videoSelection) {
+            setUploadedBlob(file);
+            setRecordingScorer(videoSelection);
+            setVideoSelection(null);
+          }
+        }}
+      />
+
+      {/* Video Recorder Modal */}
+      {recordingScorer && (
+        <VideoRecorderModal
+          scorerName={recordingScorer.name}
+          onSave={handleSaveVideo}
+          onClose={() => {
+            setRecordingScorer(null);
+            setUseCamera(false);
+            setUploadedBlob(null);
+          }}
+          onReRecord={uploadedBlob ? () => {
+            const currentScorer = recordingScorer;
+            setUploadedBlob(null);
+            setRecordingScorer(null);
+            setVideoSelection(currentScorer);
+            setTimeout(() => fileInputRef.current?.click(), 100);
+          } : undefined}
+          fullScreen={useCamera}
+          initialBlob={uploadedBlob}
+          reRecordLabel={uploadedBlob ? "Yenidən seç" : "Yenidən çək"}
+        />
+      )}
     </div>
   );
 };

@@ -172,45 +172,45 @@ const BracketView: React.FC<Props> = ({ matches, teams, onMatchClick }) => {
                 return (
                   <div key={tie.leg1.id} className="relative w-full group">
                     {col.isLeftSide ? (
-                      <div className="absolute -right-4 md:-right-8 top-1/2 w-4 md:w-8 h-[1px] connector-line opacity-50"></div>
+                      <div className="absolute -right-4 md:-right-8 top-1/2 w-4 md:w-8 h-[2px] bg-neon/40 shadow-[0_0_10px_rgba(57,255,20,0.3)]"></div>
                     ) : (
-                      <div className="absolute -left-4 md:-left-8 top-1/2 w-4 md:w-8 h-[1px] connector-line opacity-50"></div>
+                      <div className="absolute -left-4 md:-left-8 top-1/2 w-4 md:w-8 h-[2px] bg-neon/40 shadow-[0_0_10px_rgba(57,255,20,0.3)]"></div>
                     )}
 
                     <div 
-                      className="glass-card p-3 md:p-4 rounded-2xl transition-all duration-500 hover:border-neon/40 hover:bg-[#1e293b]/70 cursor-pointer"
+                      className="glass-card p-4 md:p-6 rounded-3xl transition-all duration-500 hover:border-neon/60 hover:bg-[#050e1c]/90 cursor-pointer border border-white/10 shadow-xl group-hover:shadow-neon/10"
                       onClick={() => onMatchClick(tie.leg1.id)}
                     >
-                      <div className="flex justify-between items-center mb-3 md:mb-4">
+                      <div className="flex justify-between items-center mb-4 md:mb-6">
                         {tie.leg1.isFinished ? (
-                          <span className="bg-white/10 text-white/60 text-[8px] md:text-[9px] font-bold px-2 py-1 rounded-full uppercase border border-white/10">BİTİB</span>
+                          <span className="bg-neon/10 text-neon text-[10px] md:text-[11px] font-black px-3 py-1 rounded-full uppercase border border-neon/20 tracking-widest">BİTİB</span>
                         ) : (
-                          <span className="bg-white/5 text-white/40 text-[8px] md:text-[9px] font-bold px-2 py-1 rounded-full uppercase border border-white/5">GÖZLƏNİLİR</span>
+                          <span className="bg-white/5 text-white/40 text-[10px] md:text-[11px] font-black px-3 py-1 rounded-full uppercase border border-white/10 tracking-widest">GÖZLƏNİLİR</span>
                         )}
                         {tie.leg2 && (
-                          <span className="text-[8px] text-white/40 uppercase tracking-widest">2 Oyun</span>
+                          <span className="text-[10px] text-white/20 uppercase tracking-[0.2em] font-black">2 Oyun</span>
                         )}
                       </div>
                       
-                      <div className="space-y-3 md:space-y-4">
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2 md:gap-3">
-                            <div className="w-5 h-5 md:w-7 md:h-7 rounded-full bg-[#1c2533] p-1 border border-white/5">
+                      <div className="space-y-4 md:space-y-6">
+                        <div className="flex justify-between items-center gap-4">
+                          <div className="flex items-center gap-3 md:gap-4">
+                            <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-white p-1.5 border border-white/10 shadow-lg group-hover:scale-110 transition-transform">
                               <img alt={home.name} className="w-full h-full object-contain" src={home.logo}/>
                             </div>
-                            <span className="font-headline font-bold text-[9px] md:text-[11px] uppercase tracking-wide text-white">{home.name}</span>
+                            <span className="font-display font-black text-xs md:text-lg uppercase tracking-tight text-white italic">{home.name}</span>
                           </div>
-                          <span className={`font-headline text-base md:text-lg font-black ${homeScore !== null && homeScore > (awayScore || 0) ? 'text-neon' : 'text-white'}`}>{homeScore ?? '-'}</span>
+                          <span className={`font-display text-xl md:text-3xl font-black ${homeScore !== null && homeScore > (awayScore || 0) ? 'text-neon drop-shadow-[0_0_10px_rgba(57,255,20,0.5)]' : 'text-white/80'}`}>{homeScore ?? '-'}</span>
                         </div>
                         
-                        <div className="flex justify-between items-center">
-                          <div className="flex items-center gap-2 md:gap-3">
-                            <div className="w-5 h-5 md:w-7 md:h-7 rounded-full bg-[#1c2533] p-1 border border-white/5">
+                        <div className="flex justify-between items-center gap-4">
+                          <div className="flex items-center gap-3 md:gap-4">
+                            <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-white p-1.5 border border-white/10 shadow-lg group-hover:scale-110 transition-transform">
                               <img alt={away.name} className="w-full h-full object-contain" src={away.logo}/>
                             </div>
-                            <span className="font-headline font-bold text-[9px] md:text-[11px] uppercase tracking-wide text-white">{away.name}</span>
+                            <span className="font-display font-black text-xs md:text-lg uppercase tracking-tight text-white italic">{away.name}</span>
                           </div>
-                          <span className={`font-headline text-base md:text-lg font-black ${awayScore !== null && awayScore > (homeScore || 0) ? 'text-neon' : 'text-white'}`}>{awayScore ?? '-'}</span>
+                          <span className={`font-display text-xl md:text-3xl font-black ${awayScore !== null && awayScore > (homeScore || 0) ? 'text-neon drop-shadow-[0_0_10px_rgba(57,255,20,0.5)]' : 'text-white/80'}`}>{awayScore ?? '-'}</span>
                         </div>
                       </div>
                     </div>

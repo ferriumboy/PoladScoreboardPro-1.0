@@ -1,21 +1,37 @@
 
 import { Team, Match, TournamentMode, TournamentType, Standing } from '../types';
 
+const assignDatesToMatches = (matches: Match[]) => {
+  const sorted = [...matches].sort((a, b) => (a.round || 0) - (b.round || 0));
+  const roundDates: Record<number, string> = {};
+  let lastDate = new Date();
+  
+  sorted.forEach(m => {
+    if (m.round && !roundDates[m.round]) {
+      const d = new Date(lastDate);
+      d.setDate(d.getDate() + 1);
+      roundDates[m.round] = d.toLocaleDateString('az-AZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      lastDate = d;
+    }
+    if (m.round) {
+      m.date = roundDates[m.round];
+    }
+  });
+};
+
 export const generateFixtures = (teams: Team[], mode: TournamentMode, type?: TournamentType): Match[] => {
   const n = (teams || []).length;
   if (n < 2) return [];
 
+  let fixtures: Match[] = [];
+
   if (mode === TournamentMode.KNOCKOUT) {
-    // UCL mode knockout is two-legged
-    return generateKnockoutBracket(teams, type === TournamentType.CHAMPIONS_LEAGUE);
-  }
-
-  if (mode === TournamentMode.GROUP_KNOCKOUT) {
-    return generateGroupKnockout(teams);
-  }
-
-  if (mode === TournamentMode.LEAGUE) {
-    // Standard league with home and away
+    fixtures = generateKnockoutBracket(teams, type === TournamentType.CHAMPIONS_LEAGUE);
+  } else if (mode === TournamentMode.GROUP_KNOCKOUT) {
+    fixtures = generateGroupKnockout(teams);
+  } else if (mode === TournamentMode.LEAGUE_KNOCKOUT) {
+    fixtures = generateLeagueKnockout(teams);
+  } else if (mode === TournamentMode.LEAGUE) {
     const baseFixtures = generateFixtures(teams, TournamentMode.SINGLE);
     const numRounds = teams.length % 2 === 0 ? teams.length - 1 : teams.length;
     const returnFixtures = baseFixtures.map(m => ({
@@ -27,56 +43,55 @@ export const generateFixtures = (teams: Team[], mode: TournamentMode, type?: Tou
       stageName: 'Liqa Mərhələsi'
     }));
     baseFixtures.forEach(m => m.stageName = 'Liqa Mərhələsi');
-    return [...baseFixtures, ...returnFixtures];
-  }
-
-  if (mode === TournamentMode.LEAGUE_KNOCKOUT) {
-    return generateLeagueKnockout(teams);
-  }
-
-  // SINGLE or HOME_AWAY
-  const tempTeams = [...(teams || [])];
-  if (n % 2 !== 0) {
-    tempTeams.push({ id: 'bye', name: 'BYE', logo: '' });
-  }
-
-  const numTeams = tempTeams.length;
-  const numRounds = numTeams - 1;
-  const matchesPerRound = numTeams / 2;
-  const fixtures: Match[] = [];
-
-  for (let round = 0; round < numRounds; round++) {
-    for (let matchIdx = 0; matchIdx < matchesPerRound; matchIdx++) {
-      const home = tempTeams[matchIdx];
-      const away = tempTeams[numTeams - 1 - matchIdx];
-
-      if (home.id !== 'bye' && away.id !== 'bye') {
-        fixtures.push({
-          id: `match-${round}-${matchIdx}`,
-          homeTeamId: home.id,
-          awayTeamId: away.id,
-          homeScore: null,
-          awayScore: null,
-          isFinished: false,
-          round: round + 1
-        });
-      }
+    fixtures = [...baseFixtures, ...returnFixtures];
+  } else {
+    // SINGLE or HOME_AWAY
+    const tempTeams = [...(teams || [])];
+    if (n % 2 !== 0) {
+      tempTeams.push({ id: 'bye', name: 'BYE', logo: '' });
     }
-    const last = tempTeams.pop()!;
-    tempTeams.splice(1, 0, last);
+
+    const numTeams = tempTeams.length;
+    const numRounds = numTeams - 1;
+    const matchesPerRound = numTeams / 2;
+    const baseFixtures: Match[] = [];
+
+    for (let round = 0; round < numRounds; round++) {
+      for (let matchIdx = 0; matchIdx < matchesPerRound; matchIdx++) {
+        const home = tempTeams[matchIdx];
+        const away = tempTeams[numTeams - 1 - matchIdx];
+
+        if (home.id !== 'bye' && away.id !== 'bye') {
+          baseFixtures.push({
+            id: `match-${round}-${matchIdx}`,
+            homeTeamId: home.id,
+            awayTeamId: away.id,
+            homeScore: null,
+            awayScore: null,
+            isFinished: false,
+            round: round + 1
+          });
+        }
+      }
+      const last = tempTeams.pop()!;
+      tempTeams.splice(1, 0, last);
+    }
+
+    if (mode === TournamentMode.HOME_AWAY) {
+      const returnFixtures = baseFixtures.map(m => ({
+        ...m,
+        id: `${m.id}-return`,
+        homeTeamId: m.awayTeamId,
+        awayTeamId: m.homeTeamId,
+        round: m.round + numRounds
+      }));
+      fixtures = [...baseFixtures, ...returnFixtures];
+    } else {
+      fixtures = baseFixtures;
+    }
   }
 
-  if (mode === TournamentMode.HOME_AWAY) {
-    const returnFixtures = fixtures.map(m => ({
-      ...m,
-      id: `${m.id}-return`,
-      homeTeamId: m.awayTeamId,
-      awayTeamId: m.homeTeamId,
-      round: m.round + numRounds
-    }));
-    return [...fixtures, ...returnFixtures];
-  }
-
+  assignDatesToMatches(fixtures);
   return fixtures;
 };
 
@@ -253,7 +268,7 @@ const generateLeagueKnockout = (teams: Team[]): Match[] => {
   let leagueFixtures: Match[] = [];
   
   if (teams.length <= 10) {
-    leagueFixtures = generateFixtures(teams, TournamentMode.SINGLE);
+    leagueFixtures = generateFixtures(teams, TournamentMode.LEAGUE);
   } else {
     // Generate 8 random matches per team
     const matchCounts: Record<string, number> = {};

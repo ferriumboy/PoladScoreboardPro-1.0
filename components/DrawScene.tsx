@@ -11,8 +11,6 @@ interface Props {
   isMuted: boolean;
   onToggleMute: () => void;
   onBackToMenu?: () => void;
-  zoomLevel: number;
-  onZoomChange: (zoom: number) => void;
   onOpenSocialFeed?: () => void;
 }
 
@@ -23,7 +21,7 @@ const StarBall: React.FC<{ className?: string; style?: React.CSSProperties }> = 
   </div>
 );
 
-const DrawScene: React.FC<Props> = ({ teams, onFinish, onStartMusic, isMuted, onToggleMute, onBackToMenu, zoomLevel, onZoomChange, onOpenSocialFeed }) => {
+const DrawScene: React.FC<Props> = ({ teams, onFinish, onStartMusic, isMuted, onToggleMute, onBackToMenu, onOpenSocialFeed }) => {
   const [remainingTeams, setRemainingTeams] = useState<Team[]>([...(teams || [])].sort(() => Math.random() - 0.5));
   const [drawnTeams, setDrawnTeams] = useState<Team[]>([]);
   const [currentDrawn, setCurrentDrawn] = useState<Team | null>(null);
@@ -128,52 +126,14 @@ const DrawScene: React.FC<Props> = ({ teams, onFinish, onStartMusic, isMuted, on
     <div className="fixed inset-0 ucl-carpet z-[60] overflow-hidden flex flex-col font-sans text-white">
       <div className="fixed inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10 pointer-events-none"></div>
       
-      <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8 flex flex-col h-screen w-full" style={{ transform: `scale(${zoomLevel / 100})`, transformOrigin: 'top center' }}>
-        <header className="flex justify-between items-center mb-4 md:mb-8 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 md:w-12 md:h-12 bg-white/10 rounded-full flex items-center justify-center backdrop-blur-md border border-white/20">
-              <span className="material-symbols-outlined text-white text-xl md:text-2xl">trophy</span>
-            </div>
-            <div className="flex flex-col">
-              <span className="font-display text-lg md:text-2xl tracking-widest uppercase italic leading-none">PÜŞKATMA <span className="text-uclaccent">MƏRASİMİ</span></span>
-              <span className="text-[8px] md:text-[10px] tracking-[0.4em] uppercase opacity-60">UEFA CHAMPIONS LEAGUE STYLE</span>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={handleSkip}
-              className="px-4 py-1.5 bg-uclaccent/20 border border-uclaccent/30 rounded-full text-[10px] font-bold text-uclaccent hover:bg-uclaccent/30 transition-all"
-            >
-              PÜŞKÜ ATLA
-            </button>
-
-            <div className="hidden md:block text-xs tracking-[0.3em] uppercase opacity-60 border-b border-white/20 pb-1">Tournament Draw 2026</div>
-            
-            <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-3 py-1 backdrop-blur-md">
-              <button 
-                onClick={() => onZoomChange(Math.max(50, zoomLevel - 10))}
-                className="hover:text-uclaccent transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">zoom_out</span>
-              </button>
-              <span className="text-[10px] font-black w-8 text-center">{zoomLevel}%</span>
-              <button 
-                onClick={() => onZoomChange(Math.min(150, zoomLevel + 10))}
-                className="hover:text-uclaccent transition-colors"
-              >
-                <span className="material-symbols-outlined text-sm">zoom_in</span>
-              </button>
-            </div>
-
-            <button onClick={onToggleMute} className="text-white/40 hover:text-white transition-colors">
-              <span className="material-symbols-outlined text-xl">{isMuted ? 'volume_off' : 'volume_up'}</span>
-            </button>
-            
-            {onBackToMenu && (
-              <button onClick={onBackToMenu} className="px-4 py-1.5 bg-white/5 border border-white/10 rounded-full text-[10px] font-bold text-white/60 hover:text-white hover:bg-white/10 transition-all">MENYU</button>
-            )}
-          </div>
+      <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-8 flex flex-col h-screen w-full">
+        <header className="flex justify-center items-center mb-4 md:mb-8 shrink-0 pt-4">
+          <button 
+            onClick={handleSkip}
+            className="px-8 py-3 md:px-12 md:py-4 bg-[#39FF14]/20 border-2 border-[#39FF14]/40 rounded-2xl text-[10px] md:text-xs font-black tracking-[0.3em] text-[#39FF14] hover:bg-[#39FF14]/30 hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(57,255,20,0.2)] transition-all uppercase"
+          >
+            PÜŞKATMAYI KEÇ
+          </button>
         </header>
 
         <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-12 items-center pb-8 md:pb-12 overflow-hidden">
